@@ -7,11 +7,11 @@ variable "location" {
 variable "resource_group_name" {
   description = "Persistent lab resource group"
   type        = string
-  default     = "rg-hybrid-infra-lab"
+  default     = "rg-hybrid-infra-lab-ha"
 }
 
 variable "managed_identity_name" {
   description = "Control Manager managed identity"
   type        = string
-  default     = "id-cm"
+  default     = "id-cm-ha"
 }

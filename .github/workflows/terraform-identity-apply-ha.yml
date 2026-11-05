@@ -1,4 +1,4 @@
-name: Terraform Identity Apply
+name: Terraform Identity Apply HA
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
               - '.checkov.yaml'
 
   prepare:
-    name: Find Approved Terraform Identity Plan
+    name: Find Approved Terraform Identity Plan HA
     needs: check-changes
     if: ${{ needs.check-changes.outputs.has_changes == 'true' }}
     runs-on: ubuntu-24.04
@@ -69,7 +69,7 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Find Successful Terraform Identity Plan
+      - name: Find Successful Terraform Identity Plan HA
         id: find-plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,7 +77,7 @@ jobs:
         run: |
           RUN_JSON=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
-            --workflow "Terraform Identity Plan" \
+            --workflow "Terraform Identity Plan HA" \
             --commit "$PR_HEAD_SHA" \
             --status success \
             --limit 10 \
@@ -87,11 +87,11 @@ jobs:
           PLAN_SHA=$(echo "$RUN_JSON" | jq -r '.[0].headSha')
 
           if [ -z "$PLAN_RUN_ID" ] \vert{}\vert{} [ "$PLAN_RUN_ID" = "null" ]; then
-            echo "No successful Terraform Identity Plan run found for SHA $PR_HEAD_SHA"
+            echo "No successful Terraform Identity Plan HA run found for SHA $PR_HEAD_SHA"
             exit 1
           fi
 
-          ARTIFACT_NAME="terraform-identity-plan-${PR_HEAD_SHA}"
+          ARTIFACT_NAME="terraform-identity-plan-ha-${PR_HEAD_SHA}"
 
           echo "plan_run_id=$PLAN_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,7 @@ jobs:
           ARTIFACT_NAME: ${{ steps.find-plan.outputs.artifact_name }}
         run: |
           {
-            echo "## Approved Terraform Identity Plan"
+            echo "## Approved Terraform Identity Plan HA"
             echo
             echo "| Item | Value |"
             echo "|---|---|"
@@ -134,19 +134,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "Terraform Identity Apply Workflow has been triggered for this PR.
+          gh pr comment "$PR_NUMBER" --body "Terraform Identity Apply HA Workflow has been triggered for this PR.
 
-          Environment \`terraform-identity-apply\` is waiting for approval.
+          Environment \`terraform-identity-apply-ha\` is waiting for approval.
 
           Review and approve the run here:
           https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
   apply:
-    name: Apply Approved Terraform Identity Plan
+    name: Apply Approved Terraform Identity Plan HA
     needs: [check-changes, prepare]
     if: ${{ needs.check-changes.outputs.has_changes == 'true' }}
     runs-on: ubuntu-24.04
-    environment: terraform-identity-apply
+    environment: terraform-identity-apply-ha
 
     concurrency:
       group: terraform-identity-state-lock
@@ -195,17 +195,17 @@ jobs:
           EXPECTED_SHA: ${{ needs.prepare.outputs.plan_sha }}
           EXPECTED_ARTIFACT: ${{ needs.prepare.outputs.artifact_name }}
         run: |
-          test -f identity.tfplan
-          test -f identity-tfplan.txt
-          test -f plan-metadata.txt
+          test -f identity-ha.tfplan
+          test -f identity-ha-tfplan.txt
+          test -f plan-metadata-ha.txt
 
-          grep -F "Root Module: terraform/01-identity" plan-metadata.txt
-          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata.txt
+          grep -F "Root Module: terraform/01-identity" plan-metadata-ha.txt
+          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata-ha.txt
 
           echo "Terraform Identity plan artifact verification: PASS"
 
-      - name: Show Approved Terraform Plan
-        run: terraform show -no-color identity.tfplan
+      - name: Show Approved Terraform Plan HA
+        run: terraform show -no-color identity-ha.tfplan
 
-      - name: Terraform Apply
-        run: terraform apply -no-color identity.tfplan
+      - name: Terraform Identity HA Apply
+        run: terraform apply -no-color identity-ha.tfplan

@@ -1,8 +1,8 @@
-name: Ansible CD Deploy
+name: Ansible CD Deploy HA
 
 on:
   workflow_run:
-    workflows: ["Terraform VM Resource Apply"]
+    workflows: ["Terraform VM Resource Apply HA"]
     types:
       - completed
     branches:
@@ -59,9 +59,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "🚀 **Ansible CD Deploy** workflow has been triggered after Terraform apply.
+          gh pr comment "$PR_NUMBER" --body "🚀 **Ansible CD Deploy HA** workflow has been triggered after Terraform apply.
 
-          Environment \`tailscale-ci\` is now **waiting for manual approval**.
+          Environment \`tailscale-ci-ha\` is now **waiting for manual approval**.
 
           👉 [Review and Approve Workflow Run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
 
@@ -72,7 +72,7 @@ jobs:
     name: Ansible Continuous Deployment
     needs: notify-waiting
     runs-on: ubuntu-24.04
-    environment: tailscale-ci # Requires approval if configured in GitHub
+    environment: tailscale-ci-ha # Requires approval if configured in GitHub
 
     steps:
       - name: Checkout
@@ -119,7 +119,7 @@ jobs:
           MAX_RETRIES=30
           RETRY_COUNT=0
           
-          until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 azureadmin@$TARGET_IP "test -f /var/log/cloud-init-done.tag && test -d /home/azureadmin/hybrid-infra-lab" 2>/dev/null; do
+          until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 azureadmin@$TARGET_IP "test -f /var/log/cloud-init-done.tag && test -d /home/azureadmin/hybrid-infra-lab-ha" 2>/dev/null; do
             RETRY_COUNT=$((RETRY_COUNT + 1))
             if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
               echo "ERROR: Timed out waiting for Cloud-Init setup to complete on $TARGET_IP."
@@ -133,20 +133,20 @@ jobs:
       - name: Trigger Remote Ansible Execution on CM Node
         run: |
           TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
-          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
+          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab-ha && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
 
-      - name: Comment Ansible Deploy Success on PR
+      - name: Comment Ansible Deploy HA Success on PR
         if: success() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.notify-waiting.outputs.pr_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "✅ **Ansible CD Deploy** workflow completed successfully! Configuration management applied via Control Manager node."
+          gh pr comment "$PR_NUMBER" --body "✅ **Ansible CD Deploy HA** workflow completed successfully! Configuration management applied via Control Manager node."
 
-      - name: Comment Ansible Deploy Failure on PR
+      - name: Comment Ansible Deploy HA Failure on PR
         if: failure() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.notify-waiting.outputs.pr_number }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "❌ **Ansible CD Deploy** workflow failed. Please check the [Workflow Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          gh pr comment "$PR_NUMBER" --body "❌ **Ansible CD Deploy HA** workflow failed. Please check the [Workflow Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

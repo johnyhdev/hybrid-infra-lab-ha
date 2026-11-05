@@ -1,4 +1,4 @@
-name: Terraform Identity Plan
+name: Terraform Identity Plan HA
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - main
 
 concurrency:
-  group: terraform-identity-plan-${{ github.event.pull_request.number }}
+  group: terraform-identity-plan-ha-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -36,11 +36,11 @@ jobs:
               - '.checkov.yaml'
 
   plan:
-    name: Terraform Identity Plan
+    name: Terraform Identity Plan HA
     needs: check-changes
     if: ${{ needs.check-changes.outputs.has_changes == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
-    environment: terraform-identity-plan
+    environment: terraform-identity-plan-ha
 
     permissions:
       id-token: write
@@ -128,29 +128,29 @@ jobs:
         run: terraform validate
 
       # Use a unique plan filename for the identity module to avoid overwriting another plan
-      - name: Terraform Plan
-        run: terraform plan -no-color -out=identity.tfplan
+      - name: Terraform Plan HA
+        run: terraform plan -no-color -out=identity-ha.tfplan
 
-      - name: Show Terraform Plan
-        run: terraform show -no-color identity.tfplan > identity-tfplan.txt
+      - name: Show Terraform Plan HA
+        run: terraform show -no-color identity-ha.tfplan > identity-ha-tfplan.txt
 
       - name: Publish Terraform Plan Summary
         run: |
-          echo "## Terraform Identity Plan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Terraform Identity Plan HA Summary" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat identity-tfplan.txt >> "$GITHUB_STEP_SUMMARY"
+          cat identity-ha-tfplan.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create Plan Metadata
         run: |
-          cat > plan-metadata.txt <<EOF
+          cat > plan-metadata-ha.txt <<EOF
           Repository: $GITHUB_REPOSITORY
           Root Module: terraform/01-identity
           Commit SHA: ${{ github.event.pull_request.head.sha }}
           PR Number: ${{ github.event.pull_request.number }}
           PR Head SHA: ${{ github.event.pull_request.head.sha }}
           Workflow Run ID: ${{ github.run_id }}
-          Plan Artifact: terraform-identity-plan-${{ github.event.pull_request.head.sha }}
+          Plan Artifact: terraform-identity-plan-ha-${{ github.event.pull_request.head.sha }}
           EOF
 
       - name: Upload Terraform Plan Artifact
@@ -158,7 +158,7 @@ jobs:
         with:
           name: terraform-identity-plan-${{ github.event.pull_request.head.sha }}
           path: |
-            terraform/01-identity/identity.tfplan
-            terraform/01-identity/identity-tfplan.txt
-            terraform/01-identity/plan-metadata.txt
+            terraform/01-identity/identity-ha.tfplan
+            terraform/01-identity/identity-ha-tfplan.txt
+            terraform/01-identity/plan-metadata-ha.txt
           retention-days: 7

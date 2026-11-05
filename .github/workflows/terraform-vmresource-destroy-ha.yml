@@ -1,10 +1,10 @@
-name: Terraform VM Resource Destroy
+name: Terraform VM Resource Destroy HA
 
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: Confirm that the reviewed plan may destroy VM-resource resources
+        description: Confirm that the reviewed plan may destroy VM-resource HA resources
         required: true
         type: choice
         options:
@@ -39,10 +39,10 @@ jobs:
           fi
 
   plan:
-    name: Create and Publish Destroy Plan
+    name: Create and Publish Destroy Plan HA
     needs: validate-request
     runs-on: ubuntu-24.04
-    environment: terraform-vmresource-plan
+    environment: terraform-vmresource-plan-ha
 
     permissions:
       id-token: write
@@ -87,11 +87,11 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Create saved destroy plan
-        run: terraform plan -destroy -no-color -out=destroy.tfplan
+      - name: Create saved destroy plan HA
+        run: terraform plan -destroy -no-color -out=destroy-ha.tfplan
 
       - name: Render plan for review
-        run: terraform show -no-color destroy.tfplan > destroy-plan.txt
+        run: terraform show -no-color destroy-ha.tfplan > destroy-ha-plan.txt
 
       - name: Create artifact metadata
         id: metadata
@@ -99,7 +99,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          ARTIFACT_NAME="terraform-vmresource-destroy-${RUN_ID}-${RUN_ATTEMPT}"
+          ARTIFACT_NAME="terraform-vmresource-destroy-ha-${RUN_ID}-${RUN_ATTEMPT}"
           {
             echo "Repository: $GITHUB_REPOSITORY"
             echo "Root Module: terraform/02-vmresource"
@@ -107,36 +107,36 @@ jobs:
             echo "Workflow Run ID: $RUN_ID"
             echo "Workflow Run Attempt: $RUN_ATTEMPT"
             echo "Plan Artifact: $ARTIFACT_NAME"
-          } > destroy-plan-metadata.txt
+          } > destroy-plan-ha-metadata.txt
           echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Publish destroy plan summary
         run: |
           {
-            echo "## Terraform VM Resource Destroy Plan — Review Required"
+            echo "## Terraform VM Resource Destroy Plan HA — Review Required"
             echo
-            echo "Review the complete plan and target subscription before approving the protected terraform-destroy Environment. The apply job uses this exact saved plan."
+            echo "Review the complete plan and target subscription before approving the protected terraform-destroy-ha Environment. The apply job uses this exact saved plan."
             echo
             echo '```text'
-            cat destroy-plan.txt
+            cat destroy-plan-ha.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload saved destroy plan
+      - name: Upload saved destroy plan HA
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.metadata.outputs.artifact_name }}
           path: |
-            terraform/02-vmresource/destroy.tfplan
-            terraform/02-vmresource/destroy-plan.txt
-            terraform/02-vmresource/destroy-plan-metadata.txt
+            terraform/02-vmresource/destroy-ha.tfplan
+            terraform/02-vmresource/destroy-ha-plan.txt
+            terraform/02-vmresource/destroy-plan-ha-metadata.txt
           retention-days: 1
 
   apply:
-    name: Apply Reviewed Destroy Plan
+    name: Apply Reviewed Destroy Plan HA
     needs: plan
     runs-on: ubuntu-24.04
-    environment: terraform-destroy
+    environment: terraform-destroy-ha
 
     permissions:
       id-token: write
@@ -187,14 +187,14 @@ jobs:
           EXPECTED_RUN_ID: ${{ github.run_id }}
           EXPECTED_ARTIFACT: ${{ needs.plan.outputs.artifact_name }}
         run: |
-          test -f destroy.tfplan
-          test -f destroy-plan.txt
-          test -f destroy-plan-metadata.txt
-          grep -Fx "Repository: $GITHUB_REPOSITORY" destroy-plan-metadata.txt
-          grep -Fx "Root Module: terraform/02-vmresource" destroy-plan-metadata.txt
-          grep -Fx "Commit SHA: $GITHUB_SHA" destroy-plan-metadata.txt
-          grep -Fx "Workflow Run ID: $EXPECTED_RUN_ID" destroy-plan-metadata.txt
-          grep -Fx "Plan Artifact: $EXPECTED_ARTIFACT" destroy-plan-metadata.txt
+          test -f destroy-ha.tfplan
+          test -f destroy-plan-ha.txt
+          test -f destroy-plan-ha-metadata.txt
+          grep -Fx "Repository: $GITHUB_REPOSITORY" destroy-plan-ha-metadata.txt
+          grep -Fx "Root Module: terraform/02-vmresource" destroy-plan-ha-metadata.txt
+          grep -Fx "Commit SHA: $GITHUB_SHA" destroy-plan-ha-metadata.txt
+          grep -Fx "Workflow Run ID: $EXPECTED_RUN_ID" destroy-plan-ha-metadata.txt
+          grep -Fx "Plan Artifact: $EXPECTED_ARTIFACT" destroy-plan-ha-metadata.txt
 
       - name: Apply exact reviewed destroy plan
-        run: terraform apply -auto-approve -no-color destroy.tfplan
+        run: terraform apply -auto-approve -no-color destroy-ha.tfplan

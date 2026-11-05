@@ -1,4 +1,4 @@
-name: Terraform VM Resource Apply
+name: Terraform VM Resource Apply HA
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   prepare:
-    name: Find Approved Terraform VM Resource Plan
+    name: Find Approved Terraform VM Resource Plan HA
     runs-on: ubuntu-24.04
 
     permissions:
@@ -72,7 +72,7 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Find Successful Terraform VM Resource Plan
+      - name: Find Successful Terraform VM Resource Plan HA
         if: steps.changes.outputs.src == 'true'
         id: find-plan
         env:
@@ -81,7 +81,7 @@ jobs:
         run: |
           RUN_JSON=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
-            --workflow terraform-vmresource-plan.yml \
+            --workflow terraform-vmresource-plan-ha.yml \
             --commit "$PR_HEAD_SHA" \
             --status success \
             --limit 10 \
@@ -91,19 +91,19 @@ jobs:
           PLAN_SHA=$(echo "$RUN_JSON" | jq -r '.[0].headSha')
 
           if [ -z "$PLAN_RUN_ID" ] \vert{}\vert{} [ "$PLAN_RUN_ID" = "null" ]; then
-            echo "No successful Terraform VM Resource Plan run found."
+            echo "No successful Terraform VM Resource Plan HA run found."
             echo "Expected SHA: $PR_HEAD_SHA"
             exit 1
           fi
 
           if [ "$PLAN_SHA" != "$PR_HEAD_SHA" ]; then
-            echo "Terraform VM Resource Plan SHA mismatch."
+            echo "Terraform VM Resource Plan HA SHA mismatch."
             echo "Expected: $PR_HEAD_SHA"
             echo "Found:    $PLAN_SHA"
             exit 1
           fi
 
-          ARTIFACT_NAME="terraform-vmresource-plan-${PR_HEAD_SHA}"
+          ARTIFACT_NAME="terraform-vmresource-plan-ha-${PR_HEAD_SHA}"
 
           echo "plan_run_id=$PLAN_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
@@ -124,11 +124,11 @@ jobs:
           echo "Actual SHA:   $ACTUAL_SHA"
 
           if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-            echo "ERROR: Terraform VM Resource Plan SHA mismatch."
+            echo "ERROR: Terraform VM Resource Plan HA SHA mismatch."
             exit 1
           fi
 
-          echo "Terraform VM Resource Plan SHA verified."
+          echo "Terraform VM Resource Plan HA SHA verified."
 
       - name: Download Approved Plan for Review
         if: steps.changes.outputs.src == 'true'
@@ -144,7 +144,7 @@ jobs:
             --name "$ARTIFACT_NAME" \
             --dir approved-plan
 
-          echo "Approved Terraform VM Resource plan downloaded."
+          echo "Approved Terraform VM Resource Plan HA downloaded."
           ls -la approved-plan
 
       - name: Publish Terraform Plan Summary
@@ -156,7 +156,7 @@ jobs:
           ARTIFACT_NAME: ${{ steps.find-plan.outputs.artifact_name }}
         run: |
           {
-            echo "## Approved Terraform VM Resource Plan"
+            echo "## Approved Terraform VM Resource Plan HA"
             echo
             echo "| Item | Value |"
             echo "|---|---|"
@@ -168,7 +168,7 @@ jobs:
             echo "## Terraform Changes"
             echo
             echo '```text'
-            cat approved-plan/tfplan.txt
+            cat approved-plan/vmresource-ha-tfplan.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -178,9 +178,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "Terraform VM Resource Apply Workflow has been triggered for this PR.
+          gh pr comment "$PR_NUMBER" --body "Terraform VM Resource Apply HA Workflow has been triggered for this PR.
 
-          Environment \`terraform-vmresource-apply\` is waiting for approval.
+          Environment \`terraform-vmresource-apply-ha\` is waiting for approval.
 
           Review and approve the run here:
           https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -190,12 +190,12 @@ jobs:
         run: echo "No VM Resource files changed in this merge. Apply skipped safely."
 
   apply:
-    name: Apply Approved Terraform VM Resource Plan
+    name: Apply Approved Terraform VM Resource Plan HA
     needs: prepare
     # Run only when the prepare job confirms relevant changes (has_changes == 'true').
     if: needs.prepare.outputs.has_changes == 'true'
     runs-on: ubuntu-24.04
-    environment: terraform-vmresource-apply
+    environment: terraform-vmresource-apply-ha
 
     concurrency:
       group: terraform-vmresource-state-lock
@@ -240,7 +240,7 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      - name: Download Approved Terraform Plan
+      - name: Download Approved Vmresource Terraform Plan
         env:
           GH_TOKEN: ${{ github.token }}
           PLAN_RUN_ID: ${{ needs.prepare.outputs.plan_run_id }}
@@ -256,18 +256,18 @@ jobs:
           EXPECTED_SHA: ${{ needs.prepare.outputs.plan_sha }}
           EXPECTED_ARTIFACT: ${{ needs.prepare.outputs.artifact_name }}
         run: |
-          test -f tfplan
-          test -f tfplan.txt
-          test -f plan-metadata.txt
+          test -f vmresource-ha-tfplan
+          test -f vmresource-ha-tfplan.txt
+          test -f plan-metadata-ha.txt
 
-          grep -F "Root Module: terraform/02-vmresource" plan-metadata.txt
-          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata.txt
-          grep -F "Plan Artifact: $EXPECTED_ARTIFACT" plan-metadata.txt
+          grep -F "Root Module: terraform/02-vmresource" plan-metadata-ha.txt
+          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata-ha.txt
+          grep -F "Plan Artifact: $EXPECTED_ARTIFACT" plan-metadata-ha.txt
 
-          echo "Terraform VM Resource plan artifact verification: PASS"
+          echo "Terraform VM Resource plan HA artifact verification: PASS"
 
       - name: Show Approved Terraform Plan
-        run: terraform show -no-color tfplan
+        run: terraform show -no-color vmresource-ha-tfplan
 
       - name: Terraform Apply
-        run: terraform apply -no-color tfplan
+        run: terraform apply -no-color vmresource-ha-tfplan

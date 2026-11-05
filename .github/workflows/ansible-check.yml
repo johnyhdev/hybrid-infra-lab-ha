@@ -1,4 +1,4 @@
-name: Ansible Check
+name: Ansible Check HA
 
 on:
   pull_request:
