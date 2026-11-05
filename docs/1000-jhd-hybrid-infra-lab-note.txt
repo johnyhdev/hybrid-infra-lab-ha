@@ -1,0 +1,2127 @@
+# Lab note
+
+## Sub
+s2jhd id: 
+8523e1c3-049c-4821-b08d-ba4c677080ac
+
+gh --version
+-> not yet installed
+gh version 2.103.3 (2026-10-26)
+https://github.com/cli/cli/releases/tag/v2.103.3
+
+winget install --id GitHub.cli --source winget
+-> not yet installed
+
+try to install gh cli directly
+done
+
+az login
+-> use browser instead
+
+run code
+az account clear
+az config set core.enable_broker_on_windows=false
+az login
+-> success
+then choose 2
+s2jhd id: 
+8523e1c3-049c-4821-b08d-ba4c677080ac
+
+az account list --output table
+Name    CloudName    SubscriptionId                        TenantId                              State    IsDefault
+------  -----------  ------------------------------------  ------------------------------------  -------  -----------
+subJHD  AzureCloud   adee883c-f49b-4d4a-a5e1-8eedf0d4454c  25249825-52b8-4478-bd14-bc39033c86d0  Enabled  False
+s2jhd   AzureCloud   8523e1c3-049c-4821-b08d-ba4c677080ac  25249825-52b8-4478-bd14-bc39033c86d0  Enabled  True
+
+az account set --subscription "8523e1c3-049c-4821-b08d-ba4c677080ac"
+
+
+az account show --output table
+EnvironmentName    HomeTenantId                          IsDefault    Name    State    TenantDefaultDomain    TenantDisplayName    TenantId
+-----------------  ------------------------------------  -----------  ------  -------  ---------------------  -------------------  ------------------------------------
+AzureCloud         25249825-52b8-4478-bd14-bc39033c86d0  True         s2jhd   Enabled  netop.uk               ABTEV                25249825-52b8-4478-bd14-bc39033c86d0
+
+az vm list-skus --location centralindia --size Standard_D2ps_v6 --all --output table
+az vm list-usage --location centralindia --output table
+Checking available VM done
+
+
+If needed, update control_vms a
+Checking vnet, net vm control and vm workload
+done
+
+git remote -v
+done
+
+git branch --show-current
+done
+
+git status
+-> need to add . , commit note, and push if change.
+
+change git author name/email
+git config --global user.name "an.huynh"
+git config --global user.email "an.huynh@netop.uk"
+done
+
+backend storage name (global unique)
+-> sthybridlab2629100752
+
+Check bootstrap/cm-cloud-init.yaml: change the hard-coded
+done
+
+Checked resource group name same
+
+Checked tailscale policy.hujson
+
+## Administrator SSH key
+create admin ssh key for vm provisioning
+
+ssh-keygen -t rsa -b 4096 -f "$env:USERPROFILE\.ssh\hybrid-infra-lab"
+Get-Content "$env:USERPROFILE\.ssh\hybrid-infra-lab.pub"
+
+input your password, make sure you remember it
+done
+
+now get content ssh public key
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDdlciIscAFpvY1RjaAoYW/Al1Up+uMSHkwCUdY23UExarZfwhuyskvH9cWZagjYRbdjXtl9M6Zf8ZtB4KC/oMNBNbeVfEoQKt5T1UqFSKO+Xa0sBLwJ3R6fVfKO0y25fuftVDMXByDWI/giHAXVTuwy7dkObNvdCs91kwJqSHtl8FifFNKTVj4hhU9S8mRzY56iAupodnYRSoTQ9kYangZdeq0i6WEVzqNETjf5h9dt4zi6pYYlsSsYX6D4hJdP4zK76wUJEuqmQs7xHMAJkp6YpegXolc9aeWK0JjPPk71hnB7cJU4vp1wcGVl0lC1IXV4OWkgREeUTycj6UOEpXvWJid7r5RDJ6zVz1jK0/hVqXjrR3m+DrNF8k8jT62N3SFQJ2ItX2g9nxtkxb63whpHXvyokIiatoPjtdIJiBZ4UquLdK4ow+PjWz5sY8OtC3uYYfyMnKTG7dr1ZnoVduypH/lzD4FEQ53BMqx9WnIKTo2LKrmmddCbRdiqLnPszd7n0X/2SikdSQhhNh2Qtgl9tb4L5oGkw2ZTKubE+BPVGEE1dlfrNO+vCAoUtZQYiaZyEeE4vo+WqMxD4El3kWNOgARqNdO8kz3RK06/amj/3RtwxAm200FonXChtAUb3we5eDypxoefycZYTeAHBk+w5e+leCePNtrV6ajOmw56Q== johnyhdev@DESKTOP-G93KCHR
+
+ssh public key is ready for terraform.tfvars
+
+
+## 02 — Bootstrap the Azure Blob state backend
+
+$location = "Central India"
+$stateResourceGroup = "rg-terraform-state"
+$storageAccount = "sthybridlab2629100752"
+$container = "tfstate"
+
+
+az group create --name $stateResourceGroup --location $location
+az storage account create `
+  --name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --location $location `
+  --sku Standard_LRS `
+  --kind StorageV2 `
+  --min-tls-version TLS1_2 `
+  --allow-blob-public-access false `
+  --https-only true `
+  --allow-shared-key-access false
+
+return error subscribtion not found
+now try
+
+We are checking state storage account
+
+az rest --method get --url "https://management.azure.com/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac?api-version=2022-12-01" --query "{id:id,state:state,tenantId:tenantId}" -o json
+
+az rest --method get --url "https://management.azure.com/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Storage?api-version=2021-04-01" --query "{namespace:namespace,registrationState:registrationState}" -o json
+
+now get the result
+
+"namespace": "Microsoft.Storage",
+  "registrationState": "NotRegistered"
+
+not registered
+run this code
+
+az provider register --namespace Microsoft.Storage --subscription "8523e1c3-049c-4821-b08d-ba4c677080ac"
+
+now try to check again
+az provider show --namespace Microsoft.Storage --subscription "8523e1c3-049c-4821-b08d-ba4c677080ac" --query registrationState -o tsv
+return Registering
+wait until registered
+status changed to Registered
+
+Now try again
+az storage account create `
+  --name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --location $location `
+  --sku Standard_LRS `
+  --kind StorageV2 `
+  --min-tls-version TLS1_2 `
+  --allow-blob-public-access false `
+  --https-only true `
+  --allow-shared-key-access false
+
+now register success:
+```
+{
+  "accessTier": "Hot",
+  "accountMigrationInProgress": null,
+  "allowBlobPublicAccess": false,
+  "allowCrossTenantReplication": false,
+  "allowSharedKeyAccess": false,
+  "allowSharedKeyAccessForServices": null,
+  "allowedCopyScope": null,
+  "azureFilesIdentityBasedAuthentication": null,
+  "blobRestoreStatus": null,
+  "creationTime": "2026-10-29T14:49:49.132217+00:00",
+  "customDomain": null,
+  "dataCollaborationPolicyProperties": null,
+  "defaultToOAuthAuthentication": null,
+  "dnsEndpointType": null,
+  "dualStackEndpointPreference": null,
+  "enableExtendedGroups": null,
+  "enableHttpsTrafficOnly": true,
+  "enableNfsV3": null,
+  "encryption": {
+    "encryptionIdentity": null,
+    "keySource": "Microsoft.Storage",
+    "keyVaultProperties": null,
+    "requireInfrastructureEncryption": null,
+    "services": {
+      "blob": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2026-10-29T14:49:49.276166+00:00"
+      },
+      "file": {
+        "enabled": true,
+        "keyType": "Account",
+        "lastEnabledTime": "2026-10-29T14:49:49.276166+00:00"
+      },
+      "queue": null,
+      "table": null
+    }
+  },
+  "extendedLocation": null,
+  "failoverInProgress": null,
+  "geoPriorityReplicationStatus": null,
+  "geoReplicationStats": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752",
+  "identity": null,
+  "immutableStorageWithVersioning": null,
+  "isHnsEnabled": null,
+  "isLocalUserEnabled": null,
+  "isSftpEnabled": null,
+  "isSkuConversionBlocked": null,
+  "keyCreationTime": {
+    "key1": "2026-10-29T14:49:49.265765+00:00",
+    "key2": "2026-10-29T14:49:49.265765+00:00"
+  },
+  "keyPolicy": null,
+  "kind": "StorageV2",
+  "largeFileSharesState": null,
+  "lastGeoFailoverTime": null,
+  "location": "centralindia",
+  "minimumTlsVersion": "TLS1_2",
+  "name": "sthybridlab2629100752",
+  "networkRuleSet": {
+    "bypass": "None",
+    "defaultAction": "Allow",
+    "ipRules": [],
+    "ipv6Rules": [],
+    "resourceAccessRules": null,
+    "virtualNetworkRules": []
+  },
+  "placement": null,
+  "primaryEndpoints": {
+    "blob": "https://sthybridlab2629100752.blob.core.windows.net/",
+    "dfs": "https://sthybridlab2629100752.dfs.core.windows.net/",
+    "file": "https://sthybridlab2629100752.file.core.windows.net/",
+    "internetEndpoints": null,
+    "ipv6Endpoints": null,
+    "microsoftEndpoints": null,
+    "queue": "https://sthybridlab2629100752.queue.core.windows.net/",
+    "table": "https://sthybridlab2629100752.table.core.windows.net/",
+    "web": "https://sthybridlab2629100752.z29.web.core.windows.net/"
+  },
+  "primaryLocation": "centralindia",
+  "privateEndpointConnections": [],
+  "provisioningState": "Succeeded",
+  "publicNetworkAccess": null,
+  "resourceGroup": "rg-terraform-state",
+  "routingPreference": null,
+  "sasPolicy": null,
+  "secondaryEndpoints": null,
+  "secondaryLocation": null,
+  "sku": {
+    "name": "Standard_LRS",
+    "tier": "Standard"
+  },
+  "statusOfPrimary": "available",
+  "statusOfSecondary": null,
+  "storageAccountSkuConversionStatus": null,
+  "systemData": null,
+  "tags": {},
+  "type": "Microsoft.Storage/storageAccounts",
+  "zones": null
+}
+```
+
+continue with code
+
+az storage container create `
+  --name $container `
+  --account-name $storageAccount `
+  --auth-mode login
+```
+{
+  "created": true
+}
+```
+Done
+
+Continue
+```
+az storage account blob-service-properties update `
+  --account-name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --enable-versioning true `
+  --enable-delete-retention true `
+  --delete-retention-days 14 `
+  --enable-container-delete-retention true `
+  --container-delete-retention-days 14
+```
+Done
+
+Verify the account-level security settings and Blob data-protection properties:
+```
+az storage account show `
+  --name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --query "{name:name,httpsOnly:enableHttpsTrafficOnly,minTlsVersion:minimumTlsVersion,publicBlobAccess:allowBlobPublicAccess,sharedKeyAccess:allowSharedKeyAccess,defaultNetworkAction:networkRuleSet.defaultAction}" `
+  --output table
+
+Result
+Name                   HttpsOnly    MinTlsVersion    PublicBlobAccess    SharedKeyAccess    DefaultNetworkAction
+---------------------  -----------  ---------------  ------------------  -----------------  ----------------------
+sthybridlab2629100752  True         TLS1_2           False               False              Allow
+
+az storage account blob-service-properties show `
+  --account-name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --query "{versioning:isVersioningEnabled,blobDeleteRetention:deleteRetentionPolicy,containerDeleteRetention:containerDeleteRetentionPolicy}" `
+  --output json
+
+result
+{
+  "blobDeleteRetention": {
+    "allowPermanentDelete": false,
+    "days": 14,
+    "enabled": true
+  },
+  "containerDeleteRetention": {
+    "allowPermanentDelete": null,
+    "days": 14,
+    "enabled": true
+  },
+  "versioning": true
+}
+```
+
+### Grant the bootstrap user Blob access
+
+$storageScope = az storage account show `
+  --name $storageAccount `
+  --resource-group $stateResourceGroup `
+  --query id -o tsv
+$userObjectId = az ad signed-in-user show --query id -o tsv
+az role assignment create `
+  --assignee-object-id $userObjectId `
+  --assignee-principal-type User `
+  --role "Storage Blob Data Contributor" `
+  --scope $storageScope
+
+result
+```
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-10-29T15:06:34.206439+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752/providers/Microsoft.Authorization/roleAssignments/65a1ef92-40f2-42c7-a955-698a9977720f",
+  "name": "65a1ef92-40f2-42c7-a955-698a9977720f",
+  "principalId": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "principalType": "User",
+  "resourceGroup": "rg-terraform-state",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-10-29T15:06:34.642583+00:00"
+}
+```
+
+Now try to check local can access blob storage now:
+az storage container list --account-name $storageAccount --auth-mode login --output table
+
+result successfull
+```
+Name     Lease Status    Last Modified
+-------  --------------  -------------------------
+tfstate                  2026-10-29T14:52:09+00:00
+```
+
+### Configure both Terraform backends
+We did before
+
+resource_group_name  = "rg-terraform-state" = $stateResourceGroup
+    storage_account_name = "sthybridlab2629100752" = $storageAccount
+
+2 Values we use later
+
+### Checkpoint
+
+Done
+
+## 03 — Microsoft Entra OIDC, federated credentials, and Azure RBAC
+
+### Identify the repository and Azure tenant
+
+run code
+gh auth login
+
+result
+```
+PS C:\01-dev\hybrid-infra-lab> gh auth login
+? Where do you use GitHub? GitHub.com                                                                                 
+! Did you know that expiring tokens can be requested with --expiring? Read more at https://gh.io/gh-expiring-tokens   
+? How would you like to authenticate GitHub CLI? Login with a web browser                                             
+? What is your preferred protocol for Git operations on this host? HTTPS                                              
+? Authenticate Git with your GitHub credentials? Yes                                                                  
+                                                                                                                      
+! One-time code (F530-BBC5) copied to clipboard                                                                       
+Press Enter to open https://github.com/login/device in your browser... 
+✓ Authentication complete.
+- gh config set -h github.com git_protocol https
+✓ Configured git protocol
+✓ Logged in as johnyhdev
+```
+
+run code
+```
+$repo = "johnyhdev/hybrid-infra-lab"
+$repoInfo = gh api "repos/$repo" | ConvertFrom-Json
+$owner = $repoInfo.owner.login
+$ownerId = $repoInfo.owner.id
+$repoName = $repoInfo.name
+$repoId = $repoInfo.id
+$tenantId = az account show --query tenantId -o tsv
+$subscriptionId = az account show --query id -o tsv
+```
+
+now check the result
+```
+$repo
+$repoInfo
+$owner
+$ownerId
+$repoName
+$repoId
+$tenantId
+$subscriptionId
+```
+
+result
+```
+PS C:\01-dev\hybrid-infra-lab> $repoInfo
+
+
+id                             : 1437059647
+node_id                        : R_kgDOVafKPw
+name                           : hybrid-infra-lab
+full_name                      : johnyhdev/hybrid-infra-lab
+private                        : False
+owner                          : @{login=johnyhdev; id=269844224; node_id=U_kgDOEBV_AA; 
+                                 avatar_url=https://avatars.githubusercontent.com/u/269844224?v=4; gravatar_id=; 
+                                 url=https://api.github.com/users/johnyhdev; html_url=https://github.com/johnyhdev; 
+                                 followers_url=https://api.github.com/users/johnyhdev/followers; 
+                                 following_url=https://api.github.com/users/johnyhdev/following{/other_user}; 
+                                 gists_url=https://api.github.com/users/johnyhdev/gists{/gist_id}; 
+                                 starred_url=https://api.github.com/users/johnyhdev/starred{/owner}{/repo}; 
+                                 subscriptions_url=https://api.github.com/users/johnyhdev/subscriptions; 
+                                 organizations_url=https://api.github.com/users/johnyhdev/orgs; 
+                                 repos_url=https://api.github.com/users/johnyhdev/repos; 
+                                 events_url=https://api.github.com/users/johnyhdev/events{/privacy}; 
+                                 received_events_url=https://api.github.com/users/johnyhdev/received_events; 
+                                 type=User; user_view_type=public; site_admin=False}
+html_url                       : https://github.com/johnyhdev/hybrid-infra-lab
+description                    : 
+fork                           : False
+url                            : https://api.github.com/repos/johnyhdev/hybrid-infra-lab
+forks_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/forks
+keys_url                       : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/keys{/key_id}
+collaborators_url              : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/collaborators{/collaborator}
+teams_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/teams
+hooks_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/hooks
+issue_events_url               : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/issues/events{/number}
+events_url                     : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/events
+assignees_url                  : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/assignees{/user}
+branches_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/branches{/branch}
+tags_url                       : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/tags
+blobs_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/git/blobs{/sha}
+git_tags_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/git/tags{/sha}
+git_refs_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/git/refs{/sha}
+trees_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/git/trees{/sha}
+statuses_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/statuses/{sha}
+languages_url                  : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/languages
+stargazers_url                 : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/stargazers
+contributors_url               : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/contributors
+subscribers_url                : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/subscribers
+subscription_url               : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/subscription
+commits_url                    : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/commits{/sha}
+git_commits_url                : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/git/commits{/sha}
+comments_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/comments{/number}
+issue_comment_url              : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/issues/comments{/number}
+contents_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/contents/{+path}
+compare_url                    : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/compare/{base}...{head}
+merges_url                     : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/merges
+archive_url                    : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/{archive_format}{/ref}
+downloads_url                  : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/downloads
+issues_url                     : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/issues{/number}
+pulls_url                      : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/pulls{/number}
+milestones_url                 : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/milestones{/number}
+notifications_url              : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/notifications{?since,all,par
+                                 ticipating}
+labels_url                     : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/labels{/name}
+releases_url                   : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/releases{/id}
+deployments_url                : https://api.github.com/repos/johnyhdev/hybrid-infra-lab/deployments
+created_at                     : 2026-10-28T12:33:16Z
+updated_at                     : 2026-10-28T12:33:28Z
+pushed_at                      : 2026-10-28T12:33:23Z
+git_url                        : git://github.com/johnyhdev/hybrid-infra-lab.git
+ssh_url                        : git@github.com:johnyhdev/hybrid-infra-lab.git
+clone_url                      : https://github.com/johnyhdev/hybrid-infra-lab.git
+svn_url                        : https://github.com/johnyhdev/hybrid-infra-lab
+homepage                       : 
+size                           : 2036
+stargazers_count               : 0
+watchers_count                 : 0
+language                       : HCL
+has_issues                     : True
+has_projects                   : True
+has_downloads                  : False
+has_wiki                       : True
+has_pages                      : False
+has_discussions                : False
+forks_count                    : 0
+mirror_url                     : 
+archived                       : False
+disabled                       : False
+open_issues_count              : 0
+license                        : @{key=mit; name=MIT License; spdx_id=MIT; url=https://api.github.com/licenses/mit; 
+                                 node_id=MDc6TGljZW5zZTEz}
+allow_forking                  : True
+is_template                    : False
+web_commit_signoff_required    : False
+has_pull_requests              : True
+pull_request_creation_policy   : all
+topics                         : {}
+visibility                     : public
+forks                          : 0
+open_issues                    : 0
+watchers                       : 0
+default_branch                 : main
+permissions                    : @{admin=True; maintain=True; push=True; triage=True; pull=True}
+temp_clone_token               : 
+allow_squash_merge             : True
+allow_merge_commit             : True
+allow_rebase_merge             : True
+allow_auto_merge               : False
+delete_branch_on_merge         : False
+allow_update_branch            : False
+use_squash_pr_title_as_default : False
+squash_merge_commit_message    : COMMIT_MESSAGES
+squash_merge_commit_title      : COMMIT_OR_PR_TITLE
+merge_commit_message           : PR_TITLE
+merge_commit_title             : MERGE_MESSAGE
+template_repository            : @{id=1348065848; node_id=R_kgDOUFnaOA; name=hybrid-infrastructure-lab; 
+                                 full_name=johnyhdev/hybrid-infrastructure-lab; private=False; owner=; 
+                                 html_url=https://github.com/johnyhdev/hybrid-infrastructure-lab; description=Steps 
+                                 guide: Lab test automation Terraform and ansible without SSH, Secret, etc,; 
+                                 fork=False; url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab; 
+                                 forks_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/forks; ke
+                                 ys_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/keys{/key_id
+                                 }; collaborators_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-la
+                                 b/collaborators{/collaborator}; 
+                                 teams_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/teams; 
+                                 hooks_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/hooks; is
+                                 sue_events_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/issu
+                                 es/events{/number}; 
+                                 events_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/events; 
+                                 assignees_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/assig
+                                 nees{/user}; branches_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructu
+                                 re-lab/branches{/branch}; 
+                                 tags_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/tags; blob
+                                 s_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/git/blobs{/sh
+                                 a}; git_tags_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/gi
+                                 t/tags{/sha}; git_refs_url=https://api.github.com/repos/johnyhdev/hybrid-infrastruct
+                                 ure-lab/git/refs{/sha}; trees_url=https://api.github.com/repos/johnyhdev/hybrid-infr
+                                 astructure-lab/git/trees{/sha}; statuses_url=https://api.github.com/repos/johnyhdev/
+                                 hybrid-infrastructure-lab/statuses/{sha}; languages_url=https://api.github.com/repos
+                                 /johnyhdev/hybrid-infrastructure-lab/languages; stargazers_url=https://api.github.co
+                                 m/repos/johnyhdev/hybrid-infrastructure-lab/stargazers; contributors_url=https://api
+                                 .github.com/repos/johnyhdev/hybrid-infrastructure-lab/contributors; subscribers_url=
+                                 https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/subscribers; subscr
+                                 iption_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/subscrip
+                                 tion; commits_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/c
+                                 ommits{/sha}; git_commits_url=https://api.github.com/repos/johnyhdev/hybrid-infrastr
+                                 ucture-lab/git/commits{/sha}; comments_url=https://api.github.com/repos/johnyhdev/hy
+                                 brid-infrastructure-lab/comments{/number}; issue_comment_url=https://api.github.com/
+                                 repos/johnyhdev/hybrid-infrastructure-lab/issues/comments{/number}; contents_url=htt
+                                 ps://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/contents/{+path}; comp
+                                 are_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/compare/{ba
+                                 se}...{head}; 
+                                 merges_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/merges; 
+                                 archive_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-lab/{archiv
+                                 e_format}{/ref}; downloads_url=https://api.github.com/repos/johnyhdev/hybrid-infrast
+                                 ructure-lab/downloads; issues_url=https://api.github.com/repos/johnyhdev/hybrid-infr
+                                 astructure-lab/issues{/number}; pulls_url=https://api.github.com/repos/johnyhdev/hyb
+                                 rid-infrastructure-lab/pulls{/number}; milestones_url=https://api.github.com/repos/j
+                                 ohnyhdev/hybrid-infrastructure-lab/milestones{/number}; notifications_url=https://ap
+                                 i.github.com/repos/johnyhdev/hybrid-infrastructure-lab/notifications{?since,all,part
+                                 icipating}; labels_url=https://api.github.com/repos/johnyhdev/hybrid-infrastructure-
+                                 lab/labels{/name}; releases_url=https://api.github.com/repos/johnyhdev/hybrid-infras
+                                 tructure-lab/releases{/id}; deployments_url=https://api.github.com/repos/johnyhdev/h
+                                 ybrid-infrastructure-lab/deployments; created_at=2026-08-27T04:27:54Z; 
+                                 updated_at=2026-10-25T06:02:48Z; pushed_at=2026-10-25T06:02:42Z; 
+                                 git_url=git://github.com/johnyhdev/hybrid-infrastructure-lab.git; 
+                                 ssh_url=git@github.com:johnyhdev/hybrid-infrastructure-lab.git; 
+                                 clone_url=https://github.com/johnyhdev/hybrid-infrastructure-lab.git; 
+                                 svn_url=https://github.com/johnyhdev/hybrid-infrastructure-lab; homepage=; 
+                                 size=2307; stargazers_count=0; watchers_count=0; language=HCL; has_issues=True; 
+                                 has_projects=True; has_downloads=False; has_wiki=True; has_pages=False; 
+                                 has_discussions=False; forks_count=0; mirror_url=; archived=False; disabled=False; 
+                                 open_issues_count=0; license=; allow_forking=True; is_template=True; 
+                                 web_commit_signoff_required=False; has_pull_requests=True; 
+                                 pull_request_creation_policy=collaborators_only; topics=System.Object[]; 
+                                 visibility=public; forks=0; open_issues=0; watchers=0; default_branch=main; 
+                                 permissions=; temp_clone_token=; allow_squash_merge=True; allow_merge_commit=True; 
+                                 allow_rebase_merge=True; allow_auto_merge=False; delete_branch_on_merge=False; 
+                                 allow_update_branch=False; use_squash_pr_title_as_default=False; 
+                                 squash_merge_commit_message=COMMIT_MESSAGES; 
+                                 squash_merge_commit_title=COMMIT_OR_PR_TITLE; merge_commit_message=PR_TITLE; 
+                                 merge_commit_title=MERGE_MESSAGE}
+                                 secret_scanning_non_provider_patterns=; secret_scanning_validity_checks=}
+subscribers_count              : 0
+
+PS C:\01-dev\hybrid-infra-lab> $owner
+PS C:\01-dev\hybrid-infra-lab> $ownerId
+269844224
+PS C:\01-dev\hybrid-infra-lab> $repoName
+hybrid-infra-lab
+PS C:\01-dev\hybrid-infra-lab> $repoId
+1437059647
+PS C:\01-dev\hybrid-infra-lab> $tenantId
+25249825-52b8-4478-bd14-bc39033c86d0
+PS C:\01-dev\hybrid-infra-lab> $subscriptionId
+8523e1c3-049c-4821-b08d-ba4c677080ac
+```
+
+verify repo:
+
+repo:<OWNER>@<OWNER_ID>/<REPOSITORY>@<REPOSITORY_ID>:environment:<ENVIRONMENT>
+
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:<ENVIRONMENT>
+
+now use information to create environment
+
+### Create five Entra applications and service principals
+
+run code check 5 entra applications exist or not:
+
+```
+$displayNames = @(
+  "terraform-identity-plan",
+  "terraform-identity-apply",
+  "terraform-vmresource-plan",
+  "terraform-vmresource-apply",
+  "terraform-destroy"
+)
+
+foreach ($displayName in $displayNames) {
+  Write-Host "--- $displayName ---"
+  az ad app list --display-name $displayName --query "[].{displayName:displayName,clientId:appId,applicationObjectId:id}" --output table
+}
+
+Finished
+
+those name not exists
+
+--- terraform-identity-plan ---
+
+--- terraform-identity-apply ---
+
+--- terraform-vmresource-plan ---
+
+--- terraform-vmresource-apply ---
+
+--- terraform-destroy ---
+
+only blank
+```
+Done
+
+Now create 5 entra apps:
+```
+$displayNames = @(
+  "terraform-identity-plan",
+  "terraform-identity-apply",
+  "terraform-vmresource-plan",
+  "terraform-vmresource-apply",
+  "terraform-destroy"
+)
+
+$appRecords = foreach ($displayName in $displayNames) {
+  $app = az ad app create --display-name $displayName | ConvertFrom-Json
+  if ($LASTEXITCODE -ne 0) { throw "App creation failed for $displayName." }
+  az ad sp create --id $app.appId | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Service Principal creation failed for $displayName." }
+  $spObjectId = az ad sp show --id $app.appId --query id -o tsv
+  if ($LASTEXITCODE -ne 0) { throw "Could not read Service Principal Object ID for $displayName." }
+  [pscustomobject]@{
+    DisplayName               = $displayName
+    ApplicationClientId       = $app.appId
+    ApplicationObjectId       = $app.id
+    ServicePrincipalObjectId  = $spObjectId
+  }
+}
+
+$appRecords | Format-Table -AutoSize
+
+Get the full tables
+
+DisplayName                ApplicationClientId                  ApplicationObjectId                  ServicePrincipalObjectId            
+-----------                -------------------                  -------------------                  ------------------------            
+terraform-identity-plan    dbc250f2-108b-4d28-8cdd-abcac22dde9e 52b5370b-66ec-4e11-b054-9471ee4d3baa d275ceb9-337a-4b85-b017-ec52bffb7c10
+terraform-identity-apply   56d0d583-10b2-4447-8b87-cbab217d2be2 9343ad89-1b89-487b-ae38-a9bd49c37ff6 17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+terraform-vmresource-plan  d2147e86-6af4-42a4-b0f6-fce8c7b017ba f703c6bc-84bb-4dae-bb39-dc061343a9c9 77e7ef31-5034-4327-9571-1d9ecac76585
+terraform-vmresource-apply b2e7f793-c6b1-4443-bb85-98df51d48336 3a498f69-ad87-4e83-9881-698c7adaaed6 bfe7bb24-152c-47be-a26a-843eae258ce3
+terraform-destroy          a72f13f9-27d2-4bad-9153-34b5e90379c9 b6c0a91f-2635-424c-bb1a-35599e68f3d6 5d04a691-3bb9-4205-a2e9-84dc9f2e8df1
+```
+
+Done
+
+### Create and verify the five federated credentials
+
+This code
+```
+$repo = "<OWNER>/<REPOSITORY>"
+$repoInfo = gh api "repos/$repo" | ConvertFrom-Json
+$owner = $repoInfo.owner.login
+$ownerId = $repoInfo.owner.id
+$repoName = $repoInfo.name
+$repoId = $repoInfo.id
+"Repository: $owner/$repoName (ID $repoId); owner ID $ownerId"
+```
+We could check the result first
+```
+$owner
+$ownerId
+$repoName 
+$repoId
+"Repository: $owner/$repoName (ID $repoId); owner ID $ownerId"
+```
+
+Finished to check 5 workflow environment
+
+Now construct subject:
+$environment = "terraform-vmresource-plan"
+$subject = "repo:$($owner)@$($ownerId)/$($repoName)@$($repoId):environment:$environment"
+$subject
+
+result
+```
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-plan
+
+Repeat step for 4 mores:
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-apply
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-destroy
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-identity-plan
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-identity-destroy
+
+```
+
+You could try the code, 
+```
+- name: Print OIDC claims only (temporary diagnostic)
+  uses: actions/github-script@v7
+  with:
+    script: |
+      const token = await core.getIDToken('api://AzureADTokenExchange');
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+      core.info(JSON.stringify({ iss: payload.iss, sub: payload.sub, aud: payload.aud }, null, 2));
+```
+
+But need to understand the structure repo and make it works first.
+
+continue
+
+### Generate the five JSON files outside the repository
+
+run code
+
+```
+
+$ficDir = Join-Path $env:TEMP "hybrid-lab-federated-credentials"
+New-Item -ItemType Directory -Path $ficDir -Force | Out-Null
+Set-Location $ficDir
+
+results
+Now you are at C:\Users\johnyhdev\AppData\Local\Temp\hybrid-lab-federated-credentials> 
+not in repo root
+```
+
+$appObjectIds = @{
+  "terraform-identity-plan"    = "<IDENTITY_PLAN_APP_OBJECT_ID>"
+  "terraform-identity-apply"   = "<IDENTITY_APPLY_APP_OBJECT_ID>"
+  "terraform-vmresource-plan"  = "<VMRESOURCE_PLAN_APP_OBJECT_ID>"
+  "terraform-vmresource-apply" = "<VMRESOURCE_APPLY_APP_OBJECT_ID>"
+  "terraform-destroy"          = "<DESTROY_APP_OBJECT_ID>"
+}
+
+Change to your correct ID
+
+DisplayName                ApplicationClientId                  ApplicationObjectId                  ServicePrincipalObjectId            
+-----------                -------------------                  -------------------                  ------------------------            
+terraform-identity-plan    dbc250f2-108b-4d28-8cdd-abcac22dde9e 52b5370b-66ec-4e11-b054-9471ee4d3baa d275ceb9-337a-4b85-b017-ec52bffb7c10
+terraform-identity-apply   56d0d583-10b2-4447-8b87-cbab217d2be2 9343ad89-1b89-487b-ae38-a9bd49c37ff6 17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+terraform-vmresource-plan  d2147e86-6af4-42a4-b0f6-fce8c7b017ba f703c6bc-84bb-4dae-bb39-dc061343a9c9 77e7ef31-5034-4327-9571-1d9ecac76585
+terraform-vmresource-apply b2e7f793-c6b1-4443-bb85-98df51d48336 3a498f69-ad87-4e83-9881-698c7adaaed6 bfe7bb24-152c-47be-a26a-843eae258ce3
+terraform-destroy          a72f13f9-27d2-4bad-9153-34b5e90379c9 b6c0a91f-2635-424c-bb1a-35599e68f3d6 5d04a691-3bb9-4205-a2e9-84dc9f2e8df1
+
+
+$appObjectIds = @{
+  "terraform-identity-plan"    = "52b5370b-66ec-4e11-b054-9471ee4d3baa"
+  "terraform-identity-apply"   = "9343ad89-1b89-487b-ae38-a9bd49c37ff6"
+  "terraform-vmresource-plan"  = "f703c6bc-84bb-4dae-bb39-dc061343a9c9"
+  "terraform-vmresource-apply" = "3a498f69-ad87-4e83-9881-698c7adaaed6"
+  "terraform-destroy"          = "b6c0a91f-2635-424c-bb1a-35599e68f3d6"
+}
+
+Done
+
+Now enter code 
+```
+$environments = @(
+  "terraform-identity-plan",
+  "terraform-identity-apply",
+  "terraform-vmresource-plan",
+  "terraform-vmresource-apply",
+  "terraform-destroy"
+)
+
+foreach ($environment in $environments) {
+  $credential = @{
+    name        = "github-$environment"
+    issuer      = "https://token.actions.githubusercontent.com"
+    subject     = "repo:$($owner)@$($ownerId)/$($repoName)@$($repoId):environment:$environment"
+    description = "GitHub Actions federated credential for $environment"
+    audiences   = @("api://AzureADTokenExchange")
+  }
+  $jsonPath = Join-Path $ficDir "$environment.json"
+  $credential | ConvertTo-Json -Depth 5 | Set-Content -Path $jsonPath -Encoding ascii
+}
+
+Get-ChildItem $ficDir -Filter *.json | Select-Object Name, Length
+```
+
+Get the results:
+```
+Name                            Length
+----                            ------
+terraform-destroy.json             390
+terraform-identity-apply.json      411
+terraform-identity-plan.json       408
+terraform-vmresource-apply.json    417
+terraform-vmresource-plan.json     414
+```
+
+Make sure to view the content inside each files:
+
+```
+{
+    "subject":  "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-plan",
+    "audiences":  [
+                      "api://AzureADTokenExchange"
+                  ],
+    "issuer":  "https://token.actions.githubusercontent.com",
+    "name":  "github-terraform-vmresource-plan",
+    "description":  "GitHub Actions federated credential for terraform-vmresource-plan"
+}
+```
+Look like correct.
+Now repeat with 4 files.
+
+Done (I skip it to save your time)
+
+### Create each FIC on its matching app
+
+run code
+```
+foreach ($environment in $environments) {
+  $appObjectId = $appObjectIds[$environment]
+  $jsonPath = Join-Path $ficDir "$environment.json"
+  az ad app federated-credential create --id $appObjectId --parameters $jsonPath --output none
+  if ($LASTEXITCODE -ne 0) { throw "FIC creation failed for $environment; stop and correct the reported error." }
+  Write-Host "Created FIC for $environment on Application Object ID $appObjectId"
+}
+```
+
+Now the process stop at number 3, because typo missing "f" :)
+```
+$appObjectIds = @{
+  "terraform-identity-plan"    = "52b5370b-66ec-4e11-b054-9471ee4d3baa"
+  "terraform-identity-apply"   = "9343ad89-1b89-487b-ae38-a9bd49c37ff6"
+  "terraform-vmresource-plan"  = "f703c6bc-84bb-4dae-bb39-dc061343a9c9"
+  "terraform-vmresource-apply" = "3a498f69-ad87-4e83-9881-698c7adaaed6"
+  "terraform-destroy"          = "b6c0a91f-2635-424c-bb1a-35599e68f3d6"
+}
+
+remove 2 above
+$appObjectIds = @{
+  "terraform-vmresource-plan"  = "f703c6bc-84bb-4dae-bb39-dc061343a9c9"
+  "terraform-vmresource-apply" = "3a498f69-ad87-4e83-9881-698c7adaaed6"
+  "terraform-destroy"          = "b6c0a91f-2635-424c-bb1a-35599e68f3d6"
+}
+
+fix environment
+$environments = @(
+  "terraform-vmresource-plan",
+  "terraform-vmresource-apply",
+  "terraform-destroy"
+)
+
+foreach ($environment in $environments) {
+  $appObjectId = $appObjectIds[$environment]
+  $jsonPath = Join-Path $ficDir "$environment.json"
+  az ad app federated-credential create --id $appObjectId --parameters $jsonPath --output none
+  if ($LASTEXITCODE -ne 0) { throw "FIC creation failed for $environment; stop and correct the reported error." }
+  Write-Host "Created FIC for $environment on Application Object ID $appObjectId"
+}
+
+
+### Verify every app before deleting the files
+
+Make sure 5 FIC are created
+
+load 5 environment again
+$environments = @(
+  "terraform-identity-plan",
+  "terraform-identity-apply",
+  "terraform-vmresource-plan",
+  "terraform-vmresource-apply",
+  "terraform-destroy"
+)
+
+load appObjectIds again
+$appObjectIds = @{
+  "terraform-identity-plan"    = "52b5370b-66ec-4e11-b054-9471ee4d3baa"
+  "terraform-identity-apply"   = "9343ad89-1b89-487b-ae38-a9bd49c37ff6"
+  "terraform-vmresource-plan"  = "f703c6bc-84bb-4dae-bb39-dc061343a9c9"
+  "terraform-vmresource-apply" = "3a498f69-ad87-4e83-9881-698c7adaaed6"
+  "terraform-destroy"          = "b6c0a91f-2635-424c-bb1a-35599e68f3d6"
+}
+
+Now verify code:
+foreach ($environment in $environments) {
+  Write-Host "--- $environment ---"
+  az ad app federated-credential list `
+    --id $appObjectIds[$environment] `
+    --query "[?name=='github-$environment'].{name:name,issuer:issuer,subject:subject,audiences:audiences}" `
+    --output json
+  if ($LASTEXITCODE -ne 0) { throw "FIC verification failed for $environment." }
+}
+
+result
+```
+--- terraform-identity-plan ---1
+[
+  {
+    "audiences": [
+      "api://AzureADTokenExchange"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "name": "github-terraform-identity-plan",
+    "subject": "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-identity-plan"
+  }
+]
+--- terraform-identity-apply ---2
+[
+  {
+    "audiences": [
+      "api://AzureADTokenExchange"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "name": "github-terraform-identity-apply",
+    "subject": "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-identity-apply"
+  }
+]
+--- terraform-vmresource-plan ---3
+[
+  {
+    "audiences": [
+      "api://AzureADTokenExchange"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "name": "github-terraform-vmresource-plan",
+    "subject": "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-plan"
+  }
+]
+--- terraform-vmresource-apply ---4
+[
+  {
+    "audiences": [
+      "api://AzureADTokenExchange"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "name": "github-terraform-vmresource-apply",
+    "subject": "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-vmresource-apply"
+  }
+]
+--- terraform-destroy ---5
+[
+  {
+    "audiences": [
+      "api://AzureADTokenExchange"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "name": "github-terraform-destroy",
+    "subject": "repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:terraform-destroy"
+  }
+]
+```
+Done 5 Fics are created correctly
+
+
+back to root repo
+
+Set-Location "C:\01-dev\hybrid-infra-lab"
+
+remove temp json
+```
+Remove-Item -LiteralPath $ficDir -Recurse -Force
+Test-Path -LiteralPath $ficDir
+```
+Result
+```
+False
+```
+
+Done, all temp files were removed.
+
+### Deploy 01-Identity to create main resource
+
+```
+cd terraform/01-identity
+```
+now you are at 01-identity
+
+run these codes:
+```
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+```
+
+Results
+```
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> terraform init
+Initializing the backend...
+- Reusing previous version of hashicorp/azurerm from the dependency lock file
+- Using previously-installed hashicorp/azurerm v4.81.0
+
+Terraform has been successfully initialized!
+
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> terraform fmt
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> terraform validate
+Success! The configuration is valid.
+```
+
+Now enter and waiting terraform plan:
+```
+Plan: 3 to add, 0 to change, 0 to destroy.
+```
+
+Now enter:
+```
+terraform apply -auto-approve
+```
+To create 01-identity resource:
+
+result:
+```
+Creation complete after 28s [id=/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab]
+[id=/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-cm]
+
+[id=/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.Authorization/roleAssignments/b1849bfe-bde7-89b6-c795-34c55189cd03]
+```
+
+Make sure write down these things:
+```
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+cm_client_id = "745d51c2-8812-4f9f-b8bc-0b375690e8b9"
+cm_identity_id = "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-cm"
+cm_principal_id = "26b06b80-a0b0-40c7-97c3-b7934444a1bf"
+resource_group_name = "rg-hybrid-infra-lab"
+tenant_id = "25249825-52b8-4478-bd14-bc39033c86d0"
+```
+
+### Assign Azure RBAC roles
+
+Get relevant scopes:
+
+$subscriptionScope = az account show --query id -o tsv
+$labRgScope = az group show --name "<LAB_RESOURCE_GROUP>" --query id -o tsv
+$storageScope = az storage account show --name "<STATE_STORAGE_ACCOUNT>" --resource-group "<STATE_RESOURCE_GROUP>" --query id -o tsv
+
+change with your content id and paste to powershell:
+```
+$subscriptionScope = az account show --query id -o tsv
+$labRgScope = az group show --name "rg-hybrid-infra-lab" --query id -o tsv
+$storageScope = az storage account show --name "sthybridlab2629100752" --resource-group "rg-terraform-state" --query id -o tsv
+```
+
+resource_group_name  = "rg-terraform-state" = $stateResourceGroup
+    storage_account_name = "sthybridlab2629100752" = $storageAccount
+
+listup the values:
+```
+$subscriptionScope
+$labRgScope
+$storageScope
+```
+
+results
+```
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> $subscriptionScope
+8523e1c3-049c-4821-b08d-ba4c677080ac
+
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> $labRgScope
+/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab
+
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> $storageScope
+/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+```
+Make sure you got the values; now next
+
+```
+az role assignment create --assignee-object-id <SP_OBJECT_ID> --assignee-principal-type ServicePrincipal --role "Storage Blob Data Contributor" --scope $storageScope
+```
+
+Now use the example code above for these 5 identities.
+Repace <IDENTITY_PLAN_SP_OBJECT_ID> with real values:
+
+```
+$spObjectIds = @{
+  "terraform-identity-plan"    = "d275ceb9-337a-4b85-b017-ec52bffb7c10"
+  "terraform-identity-apply"   = "17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9"
+  "terraform-vmresource-plan"  = "77e7ef31-5034-4327-9571-1d9ecac76585"
+  "terraform-vmresource-apply" = "bfe7bb24-152c-47be-a26a-843eae258ce3"
+  "terraform-destroy"          = "5d04a691-3bb9-4205-a2e9-84dc9f2e8df1"
+}
+
+foreach ($environment in $spObjectIds.Keys) {
+  az role assignment create `
+    --assignee-object-id $spObjectIds[$environment] `
+    --assignee-principal-type ServicePrincipal `
+    --role "Storage Blob Data Contributor" `
+    --scope $storageScope `
+    --output none
+  if ($LASTEXITCODE -ne 0) { throw "Could not assign state access for $environment." }
+}
+
+foreach ($environment in $spObjectIds.Keys) {
+  Write-Host "--- $environment state access ---"
+  az role assignment list `
+    --assignee-object-id $spObjectIds[$environment] `
+    --scope $storageScope `
+    --query "[?roleDefinitionName=='Storage Blob Data Contributor'].{role:roleDefinitionName,scope:scope}" `
+    --output table
+}
+```
+DisplayName                ApplicationClientId                  ApplicationObjectId                  ServicePrincipalObjectId            
+-----------                -------------------                  -------------------                  ------------------------            
+terraform-identity-plan    dbc250f2-108b-4d28-8cdd-abcac22dde9e 52b5370b-66ec-4e11-b054-9471ee4d3baa d275ceb9-337a-4b85-b017-ec52bffb7c10
+terraform-identity-apply   56d0d583-10b2-4447-8b87-cbab217d2be2 9343ad89-1b89-487b-ae38-a9bd49c37ff6 17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+terraform-vmresource-plan  d2147e86-6af4-42a4-b0f6-fce8c7b017ba f703c6bc-84bb-4dae-bb39-dc061343a9c9 77e7ef31-5034-4327-9571-1d9ecac76585
+terraform-vmresource-apply b2e7f793-c6b1-4443-bb85-98df51d48336 3a498f69-ad87-4e83-9881-698c7adaaed6 bfe7bb24-152c-47be-a26a-843eae258ce3
+terraform-destroy          a72f13f9-27d2-4bad-9153-34b5e90379c9 b6c0a91f-2635-424c-bb1a-35599e68f3d6 5d04a691-3bb9-4205-a2e9-84dc9f2e8df1
+
+
+Now save the resources results:
+```
+--- terraform-identity-apply state access ---
+Role                           Scope
+-----------------------------  -------------------------------------------------------------------------------------------------------------------------------------------------------
+Storage Blob Data Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+--- terraform-vmresource-apply state access ---
+Role                           Scope
+-----------------------------  -------------------------------------------------------------------------------------------------------------------------------------------------------
+Storage Blob Data Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+--- terraform-identity-plan state access ---
+Role                           Scope
+-----------------------------  -------------------------------------------------------------------------------------------------------------------------------------------------------
+Storage Blob Data Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+--- terraform-destroy state access ---
+Role                           Scope
+-----------------------------  -------------------------------------------------------------------------------------------------------------------------------------------------------
+Storage Blob Data Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+--- terraform-vmresource-plan state access ---
+Role                           Scope
+-----------------------------  -------------------------------------------------------------------------------------------------------------------------------------------------------
+Storage Blob Data Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/sthybridlab2629100752
+
+```
+
+5 identities creates successfull:
+
+Now next: Suggested management-plane permissions:
+Read the table
+
+here is just example:
+```
+az role assignment create `
+  --assignee-object-id <SP_OBJECT_ID> `
+  --assignee-principal-type ServicePrincipal `
+  --role "Reader" `
+  --scope $labRgScope
+```
+we will use it next step:
+
+code:
+```
+$subscriptionScope = "/subscriptions/$(az account show --query id -o tsv)"
+resuls
+/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac
+
+# Identity plan: subscription Reader, because the Resource Group may not exist yet.
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-plan"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $subscriptionScope
+
+result:
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:22:32.421873+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleAssignments/1371900d-f38e-47bf-93fa-8fcc162a4bc2",
+  "name": "1371900d-f38e-47bf-93fa-8fcc162a4bc2",
+  "principalId": "d275ceb9-337a-4b85-b017-ec52bffb7c10",
+  "principalType": "ServicePrincipal",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:22:32.669873+00:00"
+}
+
+
+# Identity apply: temporary bootstrap permissions. Contributor does not grant roleAssignments/write.
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $subscriptionScope
+result:
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:23:06.704003+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleAssignments/a68c2ab1-5f1c-4ab5-8c69-0e1962da3127",
+  "name": "a68c2ab1-5f1c-4ab5-8c69-0e1962da3127",
+  "principalId": "17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9",
+  "principalType": "ServicePrincipal",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:23:06.936937+00:00"
+}
+
+
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply"] --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scope $subscriptionScope
+
+result:
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:23:34.122355+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleAssignments/7abccee5-8145-4a45-bf84-fbd1d6359447",
+  "name": "7abccee5-8145-4a45-bf84-fbd1d6359447",
+  "principalId": "17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9",
+  "principalType": "ServicePrincipal",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/18d7d88d-d35e-4fb5-a5c3-7773c20a72d9",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:23:34.377357+00:00"
+}
+
+```
+Now all identity line up with the table.
+
+
+Now move to terraform 02-vmresource:
+```
+$labRgScope = az group show --name "rg-hybrid-infra-lab" --query id -o tsv
+if ($LASTEXITCODE -ne 0 -or -not $labRgScope) { throw "Lab Resource Group not found; do not continue." }
+
+az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-plan"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $labRgScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-apply"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-destroy"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+```
+add resource group before paste code to vscode.
+
+code results:
+```
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-plan"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $labRgScope
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:29:02.222083+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,oleAssignments/518b2b46-df4f-4c79-bfb9-d99b0aaa913b",
+  "name": "518b2b46-df4f-4c79-bfb9-d99b0aaa913b",
+  "principalId": "77e7ef31-5034-4327-9571-1d9ecac76585",
+  "principalType": "ServicePrincipal",
+  "resourceGroup": "rg-hybrid-infra-lab",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:29:02.612090+00:00"
+}
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-apply"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:29:08.880164+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,oleAssignments/642f605f-e54e-4680-b24a-364f7905dbaf",
+  "name": "642f605f-e54e-4680-b24a-364f7905dbaf",
+  "principalId": "bfe7bb24-152c-47be-a26a-843eae258ce3",
+  "principalType": "ServicePrincipal",
+  "resourceGroup": "rg-hybrid-infra-lab",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:29:09.175169+00:00"
+}
+PS C:\01-dev\hybrid-infra-lab\terraform\01-identity> az role assignment create --assignee-object-id $spObjectIds["terraform-destroy"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+{
+  "condition": null,
+  "conditionVersion": null,
+  "createdBy": null,
+  "createdOn": "2026-11-01T10:29:17.816784+00:00",
+  "delegatedManagedIdentityResourceId": null,
+  "description": null,
+  "id": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.Authorization/roleAssignments/be1eb82c-0819-4615-8347-9ee2459da457",
+  "name": "be1eb82c-0819-4615-8347-9ee2459da457",
+  "principalId": "5d04a691-3bb9-4205-a2e9-84dc9f2e8df1",
+  "principalType": "ServicePrincipal",
+  "resourceGroup": "rg-hybrid-infra-lab",
+  "roleDefinitionId": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c",
+  "scope": "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab",
+  "systemData": null,
+  "type": "Microsoft.Authorization/roleAssignments",
+  "updatedBy": "4a6aa0fb-1ea8-42cd-80af-ae33be142ad0",
+  "updatedOn": "2026-11-01T10:29:18.108792+00:00"
+}
+```
+
+Now we finished vmresource RBAC:
+
+Step verify each resources:
+
+```
+az role assignment list `
+  --assignee-object-id $spObjectIds["terraform-vmresource-apply"] `
+  --scope $labRgScope `
+  --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
+  --output table
+```
+
+result
+```
+Role         Scope                                                                                   Principal
+-----------  --------------------------------------------------------------------------------------  ------------------------------------
+Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab  bfe7bb24-152c-47be-a26a-843eae258ce3
+```
+Role correct contributor with terraform-vmresource-apply.
+
+Try with 4 next:
+```
+az role assignment list `
+  --assignee-object-id $spObjectIds["terraform-vmresource-plan"] `
+  --scope $labRgScope `
+  --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
+  --output table
+
+result:
+Role    Scope                                                                                   Principal
+------  --------------------------------------------------------------------------------------  ------------------------------------
+Reader  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab  77e7ef31-5034-4327-9571-1d9ecac76585
+
+
+az role assignment list `
+  --assignee-object-id $spObjectIds["terraform-destroy"] `
+  --scope $labRgScope `
+  --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
+  --output table
+result: (I have typo mistake, fixed)
+Role         Scope                                                                                   Principal
+-----------  --------------------------------------------------------------------------------------  ------------------------------------
+Contributor  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab  5d04a691-3bb9-4205-a2e9-84dc9f2e8df1
+
+
+
+az role assignment list `
+  --assignee-object-id $spObjectIds["terraform-identity-plan"] `
+  --scope $subscriptionScope `
+  --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
+  --output table
+Result:
+Role    Scope                                                Principal
+------  ---------------------------------------------------  ------------------------------------
+Reader  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac  d275ceb9-337a-4b85-b017-ec52bffb7c10
+
+
+
+az role assignment list `
+  --assignee-object-id $spObjectIds["terraform-identity-apply"] `
+  --scope $subscriptionScope `
+  --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
+  --output table
+
+Result:
+Role                       Scope                                                Principal
+-------------------------  ---------------------------------------------------  ------------------------------------
+Contributor                /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac  17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+User Access Administrator  /subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac  17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+```
+Make sure the scope of each resources are correct:
+vmresource lab resource scope
+identity Subscription scope (You need to narrow if set least priviledge).
+
+Now we finished no 03.
+Done.
+It's really long explaination.
+
+## 04 — Tailscale WIF and policy
+
+Continue no 04
+
+
+1 done
+2 done
+3 done
+4 done
+5 done
+
+### GitHub policy GitOps credential
+
+
+Tailscale github subject repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:tailscale-policy
+
+Use these 2 values in variables Github environment:
+Github Tailscale policy: Client ID: TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+Github Tailscale policy: Audien: api.tailscale.com/TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+Tailnet ID/unique ID: TNyex2DCUG11CNTRL
+
+### GitHub CI credential
+
+Create a separate GitHub OIDC credential for the tailscale-ci environment in the same Tailscale workload identity federation area. Do not reuse the policy GitOps credential:
+
+Description: github-tailscale-ci
+Issuer: https://token.actions.githubusercontent.com.
+Subject: exact repository/owner-ID subject for this repository, ending :environment:tailscale-ci.
+
+repo:johnyhdev@269844224/hybrid-infra-lab@1437059647:environment:tailscale-ci
+
+Permissions SCOPES (Key Auth Keys): allow the GitHub runner to enroll/authenticate a machine as tag:ci only; do not grant policy-file write or tag:cm enrollment to CI.
+
+tailscale-ci client ID: TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+tailscale-ci Audience: api.tailscale.com/TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+
+
+### Azure managed identity credential
+
+az identity show --resource-group "rg-hybrid-infra-lab" --name "id-cm" --query "{tenantId:tenantId,principalId:principalId,clientId:clientId}" --output table
+
+PS C:\01-dev\hybrid-infra-lab> az identity show --resource-group "rg-hybrid-infra-lab" --name "id-cm" --query "{tenantId:tenantId,principalId:principalId,clientId:clientId}" --output table
+TenantId                              PrincipalId                           ClientId
+------------------------------------  ------------------------------------  ------------------------------------
+25249825-52b8-4478-bd14-bc39033c86d0  26b06b80-a0b0-40c7-97c3-b7934444a1bf  745d51c2-8812-4f9f-b8bc-0b375690e8b9
+
+
+Description: azure-vm-cm
+Issuer: the exact Microsoft Entra issuer URL required/displayed by the current Tailscale UI for your tenant. Copy it from the UI; do not guess the tenant/version URL.
+Subject: the principal ID of the User Assigned Managed Identity id-cm, not its client ID.
+Audience: the exact audience required for Azure token exchange by the Tailscale credential (default: fb60f99c-7a34-4190-8149-302f77469936). Cloud-init requests a Managed Identity token for resource api://AzureADTokenExchange and passes it to Tailscale. Never paste a bearer JWT/access token into configuration, GitHub, or logs.
+Permissions SCOPES (KEY AUTH_KEYS): allow the required machine enrollment for tag:cm only. Do not allow GitHub policy updates or tag:ci enrollment through this identity.
+
+Azure Tailscale Client ID: TNyex2DCUG11CNTRL-kLCVJKwjS411CNTRL
+Azure Tailscale Audience: fb60f99c-7a34-4190-8149-302f77469936
+
+
+### Keep the identities distinct
+
+## 05 — GitHub Environments, secrets, variables, and protection
+
+
+### Azure environments
+
+
+terraform-identity-plan
+AZURE_CLIENT_ID	dbc250f2-108b-4d28-8cdd-abcac22dde9e
+AZURE_TENANT_ID	25249825-52b8-4478-bd14-bc39033c86d0
+AZURE_SUBSCRIPTION_ID 8523e1c3-049c-4821-b08d-ba4c677080ac
+
+terraform-identity-apply
+AZURE_CLIENT_ID	56d0d583-10b2-4447-8b87-cbab217d2be2
+AZURE_TENANT_ID	25249825-52b8-4478-bd14-bc39033c86d0
+AZURE_SUBSCRIPTION_ID 8523e1c3-049c-4821-b08d-ba4c677080ac
+
+terraform-vmresource-plan
+Secrets
+AZURE_CLIENT_ID	d2147e86-6af4-42a4-b0f6-fce8c7b017ba
+AZURE_TENANT_ID	25249825-52b8-4478-bd14-bc39033c86d0
+AZURE_SUBSCRIPTION_ID 8523e1c3-049c-4821-b08d-ba4c677080ac
+SSH_PUBLIC_KEY
+
+Variables
+TAILSCALE_CM_CLIENT_ID TNyex2DCUG11CNTRL-kLCVJKwjS411CNTRL
+TAILSCALE_CM_AUDIENCE fb60f99c-7a34-4190-8149-302f77469936
+
+
+terraform-vmresource-apply
+AZURE_CLIENT_ID	b2e7f793-c6b1-4443-bb85-98df51d48336
+AZURE_TENANT_ID	25249825-52b8-4478-bd14-bc39033c86d0
+AZURE_SUBSCRIPTION_ID 8523e1c3-049c-4821-b08d-ba4c677080ac
+SSH_PUBLIC_KEY ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDdlciIscAFpvY1RjaAoYW/Al1Up+uMSHkwCUdY23UExarZfwhuyskvH9cWZagjYRbdjXtl9M6Zf8ZtB4KC/oMNBNbeVfEoQKt5T1UqFSKO+Xa0sBLwJ3R6fVfKO0y25fuftVDMXByDWI/giHAXVTuwy7dkObNvdCs91kwJqSHtl8FifFNKTVj4hhU9S8mRzY56iAupodnYRSoTQ9kYangZdeq0i6WEVzqNETjf5h9dt4zi6pYYlsSsYX6D4hJdP4zK76wUJEuqmQs7xHMAJkp6YpegXolc9aeWK0JjPPk71hnB7cJU4vp1wcGVl0lC1IXV4OWkgREeUTycj6UOEpXvWJid7r5RDJ6zVz1jK0/hVqXjrR3m+DrNF8k8jT62N3SFQJ2ItX2g9nxtkxb63whpHXvyokIiatoPjtdIJiBZ4UquLdK4ow+PjWz5sY8OtC3uYYfyMnKTG7dr1ZnoVduypH/lzD4FEQ53BMqx9WnIKTo2LKrmmddCbRdiqLnPszd7n0X/2SikdSQhhNh2Qtgl9tb4L5oGkw2ZTKubE+BPVGEE1dlfrNO+vCAoUtZQYiaZyEeE4vo+WqMxD4El3kWNOgARqNdO8kz3RK06/amj/3RtwxAm200FonXChtAUb3we5eDypxoefycZYTeAHBk+w5e+leCePNtrV6ajOmw56Q== johnyhdev@DESKTOP-G93KCHR
+
+Variables
+TAILSCALE_CM_CLIENT_ID TNyex2DCUG11CNTRL-kLCVJKwjS411CNTRL
+TAILSCALE_CM_AUDIENCE fb60f99c-7a34-4190-8149-302f77469936
+
+terraform-destroy
+AZURE_CLIENT_ID	a72f13f9-27d2-4bad-9153-34b5e90379c9
+AZURE_TENANT_ID	25249825-52b8-4478-bd14-bc39033c86d0
+AZURE_SUBSCRIPTION_ID 8523e1c3-049c-4821-b08d-ba4c677080ac
+SSH_PUBLIC_KEY
+
+Variables
+TAILSCALE_CM_CLIENT_ID TNyex2DCUG11CNTRL-kLCVJKwjS411CNTRL
+TAILSCALE_CM_AUDIENCE fb60f99c-7a34-4190-8149-302f77469936
+
+
+DisplayName                ApplicationClientId                  ApplicationObjectId                  ServicePrincipalObjectId            
+-----------                -------------------                  -------------------                  ------------------------            
+terraform-identity-plan    dbc250f2-108b-4d28-8cdd-abcac22dde9e 52b5370b-66ec-4e11-b054-9471ee4d3baa d275ceb9-337a-4b85-b017-ec52bffb7c10
+terraform-identity-apply   56d0d583-10b2-4447-8b87-cbab217d2be2 9343ad89-1b89-487b-ae38-a9bd49c37ff6 17fcdf7a-db7b-4780-ad4d-0b7dda5c89a9
+terraform-vmresource-plan  d2147e86-6af4-42a4-b0f6-fce8c7b017ba f703c6bc-84bb-4dae-bb39-dc061343a9c9 77e7ef31-5034-4327-9571-1d9ecac76585
+terraform-vmresource-apply b2e7f793-c6b1-4443-bb85-98df51d48336 3a498f69-ad87-4e83-9881-698c7adaaed6 bfe7bb24-152c-47be-a26a-843eae258ce3
+terraform-destroy          a72f13f9-27d2-4bad-9153-34b5e90379c9 b6c0a91f-2635-424c-bb1a-35599e68f3d6 5d04a691-3bb9-4205-a2e9-84dc9f2e8df1
+
+Azure Tailscale Client ID: TNyex2DCUG11CNTRL-kLCVJKwjS411CNTRL
+Azure Tailscale Audience: fb60f99c-7a34-4190-8149-302f77469936
+
+Done, complete 5 environment
+
+### Tailscale environments
+
+
+tailscale-ci: create secrets 
+TAILSCALE_CI_CLIENT_ID TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+and 
+TAILSCALE_CI_AUDIENCE api.tailscale.com/TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+
+tailscale-ci client ID: TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+tailscale-ci Audience: api.tailscale.com/TNyex2DCUG11CNTRL-kVZL8HgXW221CNTRL
+
+
+Environment:
+tailscale-policy: create variables 
+TAILSCALE_POLICY_CLIENT_ID TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+TAILSCALE_POLICY_AUDIENCE api.tailscale.com/TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+and 
+TAILSCALE_TAILNET TNyex2DCUG11CNTRL
+
+Github Tailscale policy: Client ID: TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+Github Tailscale policy: Audien: api.tailscale.com/TNyex2DCUG11CNTRL-kct5Ptw7Hs11CNTRL
+Tailnet ID/unique ID: TNyex2DCUG11CNTRL
+
+
+### Protect environments and main
+
+#### Part 1: Configuring Environment Protection
+
+2. Security Considerations for Plan Environments
+
+3. Configuring the tailscale-policy Environment
+
+4. Configuring the tailscale-ci Environment
+
+#### Part 2: Branch Protection for main
+
+#### Part 4: Code Owners & Final Verification Checklist
+
+## 06 — Run workflows, deploy, and verify
+
+run code check:
+```
+git status --short
+git ls-files | Select-String -Pattern '(^|/)(\.terraform/|.*\.tfstate(\..*)?|.*\.tfvars(\.json)?|.*\.tfplan|tfplan(\.txt)?|destroy-plan\.txt|ansible/inventory/generated/)'
+git check-ignore -v terraform/02-vmresource/tfplan terraform/02-vmresource/tfplan.txt ansible/inventory/generated/azure.yml
+```
+
+Result
+```
+PS C:\01-dev\hybrid-infra-lab> az identity show --resource-group "rg-hybrid-infra-lab" --name "id-cm" --query "{tenantId:tenantId,principalId:principalId,clientId:clientId}" --output table
+TenantId                              PrincipalId                           ClientId
+------------------------------------  ------------------------------------  ------------------------------------
+PS C:\01-dev\hybrid-infra-lab> git status --short
+ M docs/03-azure-oidc-rbac.md
+ M terraform/01-identity/backend.tf
+ M terraform/02-vmresource/backend.tf
+ M terraform/02-vmresource/variables.tf
+?? docs/1000-jhd-hybrid-infra-lab-note.txt
+PS C:\01-dev\hybrid-infra-lab> git ls-files | Select-String -Pattern '(^|/)(\.terraform/|.*\.tfstate(\..*)?|.*\.tfvars(\.json)?|.*\.tfplan|tfplan(\.txt)?|destroy-plan\.txt|ansible/inventory/generated/)'
+PS C:\01-dev\hybrid-infra-lab> git check-ignore -v terraform/02-vmresource/tfplan terraform/02-vmresource/tfplan.txt ansible/inventory/generated/azure.yml
+.gitignore:6:tfplan     terraform/02-vmresource/tfplan
+.gitignore:9:tfplan.txt terraform/02-vmresource/tfplan.txt
+.gitignore:42:/ansible/inventory/generated/     ansible/inventory/generated/azure.yml
+```
+
+### Apply the identity root first
+We did already as step 03
+
+### Apply the VM/network root
+
+Now try to check git status and push code, then make Request Pull
+
+Code terraform plan from 02-vmresource
+```
+data.azurerm_resource_group.main: Reading...
+data.azurerm_resource_group.main: Read complete after 1s [id=/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab]
+data.azurerm_user_assigned_identity.cm: Reading...
+data.azurerm_user_assigned_identity.cm: Read complete after 1s [id=/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-cm]
+
+Terraform used the selected providers to generate the following execution plan. Resource actions are indicated with the following
+symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # azurerm_linux_virtual_machine.cm["vm-cm-01"] will be created
+  + resource "azurerm_linux_virtual_machine" "cm" {
+      + admin_username                                         = "azureadmin"
+      + allow_extension_operations                             = (known after apply)
+      + bypass_platform_safety_checks_on_user_schedule_enabled = false
+      + computer_name                                          = (known after apply)
+      + custom_data                                            = (sensitive value)
+      + disable_password_authentication                        = true
+      + disk_controller_type                                   = (known after apply)
+      + extensions_time_budget                                 = "PT1H30M"
+      + id                                                     = (known after apply)
+      + location                                               = "centralindia"
+      + max_bid_price                                          = -1
+      + name                                                   = "vm-cm-01"
+      + network_interface_ids                                  = (known after apply)
+      + os_managed_disk_id                                     = (known after apply)
+      + patch_assessment_mode                                  = (known after apply)
+      + patch_mode                                             = (known after apply)
+      + platform_fault_domain                                  = -1
+      + priority                                               = "Regular"
+      + private_ip_address                                     = (known after apply)
+      + private_ip_addresses                                   = (known after apply)
+      + provision_vm_agent                                     = (known after apply)
+      + public_ip_address                                      = (known after apply)
+      + public_ip_addresses                                    = (known after apply)
+      + resource_group_name                                    = "rg-hybrid-infra-lab"
+      + size                                                   = "Standard_D2ps_v6"
+      + tags                                                   = {
+          + "environment" = "lab"
+          + "managed_by"  = "terraform"
+          + "role"        = "control-manager"
+        }
+      + virtual_machine_id                                     = (known after apply)
+      + vm_agent_platform_updates_enabled                      = (known after apply)
+      + zone                                                   = "1"
+
+      + admin_ssh_key {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+
+      + identity {
+          + identity_ids = [
+              + "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-cm",
+            ]
+          + principal_id = (known after apply)
+          + tenant_id    = (known after apply)
+          + type         = "UserAssigned"
+        }
+
+      + os_disk {
+          + caching                   = "ReadWrite"
+          + disk_size_gb              = (known after apply)
+          + id                        = (known after apply)
+          + name                      = (known after apply)
+          + storage_account_type      = "Standard_LRS"
+          + write_accelerator_enabled = false
+        }
+
+      + source_image_reference {
+          + offer     = "ubuntu-24_04-lts"
+          + publisher = "Canonical"
+          + sku       = "server-arm64"
+          + version   = "latest"
+        }
+
+      + termination_notification (known after apply)
+    }
+
+  # azurerm_linux_virtual_machine.workload["vm-workload-01"] will be created
+  + resource "azurerm_linux_virtual_machine" "workload" {
+      + admin_username                                         = "azureadmin"
+      + allow_extension_operations                             = (known after apply)
+      + bypass_platform_safety_checks_on_user_schedule_enabled = false
+      + computer_name                                          = (known after apply)
+      + custom_data                                            = (sensitive value)
+      + disable_password_authentication                        = true
+      + disk_controller_type                                   = (known after apply)
+      + extensions_time_budget                                 = "PT1H30M"
+      + id                                                     = (known after apply)
+      + location                                               = "centralindia"
+      + max_bid_price                                          = -1
+      + name                                                   = "vm-workload-01"
+      + network_interface_ids                                  = (known after apply)
+      + os_managed_disk_id                                     = (known after apply)
+      + patch_assessment_mode                                  = (known after apply)
+      + patch_mode                                             = (known after apply)
+      + platform_fault_domain                                  = -1
+      + priority                                               = "Regular"
+      + private_ip_address                                     = (known after apply)
+      + private_ip_addresses                                   = (known after apply)
+      + provision_vm_agent                                     = (known after apply)
+      + public_ip_address                                      = (known after apply)
+      + public_ip_addresses                                    = (known after apply)
+      + resource_group_name                                    = "rg-hybrid-infra-lab"
+      + size                                                   = "Standard_D2ps_v6"
+      + tags                                                   = {
+          + "environment" = "lab"
+          + "managed_by"  = "terraform"
+          + "role"        = "workload"
+        }
+      + virtual_machine_id                                     = (known after apply)
+      + vm_agent_platform_updates_enabled                      = (known after apply)
+      + zone                                                   = "1"
+
+      + admin_ssh_key {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+
+      + os_disk {
+          + caching                   = "ReadWrite"
+          + disk_size_gb              = (known after apply)
+          + id                        = (known after apply)
+          + name                      = (known after apply)
+          + storage_account_type      = "Standard_LRS"
+          + write_accelerator_enabled = false
+        }
+
+      + source_image_reference {
+          + offer     = "ubuntu-24_04-lts"
+          + publisher = "Canonical"
+          + sku       = "server-arm64"
+          + version   = "latest"
+        }
+
+      + termination_notification (known after apply)
+    }
+
+  # azurerm_network_interface.cm["vm-cm-01"] will be created
+  + resource "azurerm_network_interface" "cm" {
+      + accelerated_networking_enabled = false
+      + applied_dns_servers            = (known after apply)
+      + id                             = (known after apply)
+      + internal_domain_name_suffix    = (known after apply)
+      + ip_forwarding_enabled          = false
+      + location                       = "centralindia"
+      + mac_address                    = (known after apply)
+      + name                           = "nic-vm-cm-01"
+      + private_ip_address             = (known after apply)
+      + private_ip_addresses           = (known after apply)
+      + resource_group_name            = "rg-hybrid-infra-lab"
+      + virtual_machine_id             = (known after apply)
+
+      + ip_configuration {
+          + gateway_load_balancer_frontend_ip_configuration_id = (known after apply)
+          + name                                               = "internal"
+          + primary                                            = (known after apply)
+          + private_ip_address                                 = (known after apply)
+          + private_ip_address_allocation                      = "Dynamic"
+          + private_ip_address_version                         = "IPv4"
+          + subnet_id                                          = (known after apply)
+        }
+    }
+
+  # azurerm_network_interface.workload["vm-workload-01"] will be created
+  + resource "azurerm_network_interface" "workload" {
+      + accelerated_networking_enabled = false
+      + applied_dns_servers            = (known after apply)
+      + id                             = (known after apply)
+      + internal_domain_name_suffix    = (known after apply)
+      + ip_forwarding_enabled          = false
+      + location                       = "centralindia"
+      + mac_address                    = (known after apply)
+      + name                           = "nic-vm-workload-01"
+      + private_ip_address             = (known after apply)
+      + private_ip_addresses           = (known after apply)
+      + resource_group_name            = "rg-hybrid-infra-lab"
+      + virtual_machine_id             = (known after apply)
+
+      + ip_configuration {
+          + gateway_load_balancer_frontend_ip_configuration_id = (known after apply)
+          + name                                               = "internal"
+          + primary                                            = (known after apply)
+          + private_ip_address                                 = (known after apply)
+          + private_ip_address_allocation                      = "Dynamic"
+          + private_ip_address_version                         = "IPv4"
+          + subnet_id                                          = (known after apply)
+        }
+    }
+
+  # azurerm_network_security_group.cm will be created
+  + resource "azurerm_network_security_group" "cm" {
+      + id                  = (known after apply)
+      + location            = "centralindia"
+      + name                = "nsg-vm-cm"
+      + resource_group_name = "rg-hybrid-infra-lab"
+      + security_rule       = (known after apply)
+      + tags                = {
+          + "managed_by" = "terraform"
+          + "role"       = "control-manager"
+        }
+    }
+
+  # azurerm_network_security_group.workload will be created
+  + resource "azurerm_network_security_group" "workload" {
+      + id                  = (known after apply)
+      + location            = "centralindia"
+      + name                = "nsg-vm-workload"
+      + resource_group_name = "rg-hybrid-infra-lab"
+      + security_rule       = (known after apply)
+      + tags                = {
+          + "managed_by" = "terraform"
+          + "role"       = "workload"
+        }
+    }
+
+  # azurerm_network_security_rule.workload_http_from_automation will be created
+  + resource "azurerm_network_security_rule" "workload_http_from_automation" {
+      + access                      = "Allow"
+      + destination_address_prefix  = "*"
+      + destination_port_range      = "80"
+      + direction                   = "Inbound"
+      + id                          = (known after apply)
+      + name                        = "allow-http-from-automation"
+      + network_security_group_name = "nsg-vm-workload"
+      + priority                    = 110
+      + protocol                    = "Tcp"
+      + resource_group_name         = "rg-hybrid-infra-lab"
+      + source_address_prefix       = "10.20.1.0/24"
+      + source_port_range           = "*"
+    }
+
+  # azurerm_network_security_rule.workload_node_exporter_from_automation will be created
+  + resource "azurerm_network_security_rule" "workload_node_exporter_from_automation" {
+      + access                      = "Allow"
+      + destination_address_prefix  = "*"
+      + destination_port_range      = "9100"
+      + direction                   = "Inbound"
+      + id                          = (known after apply)
+      + name                        = "allow-node-exporter-from-automation"
+      + network_security_group_name = "nsg-vm-workload"
+      + priority                    = 120
+      + protocol                    = "Tcp"
+      + resource_group_name         = "rg-hybrid-infra-lab"
+      + source_address_prefix       = "10.20.1.0/24"
+      + source_port_range           = "*"
+    }
+
+  # azurerm_network_security_rule.workload_ssh_from_automation will be created
+  + resource "azurerm_network_security_rule" "workload_ssh_from_automation" {
+      + access                      = "Allow"
+      + destination_address_prefix  = "*"
+      + destination_port_range      = "22"
+      + direction                   = "Inbound"
+      + id                          = (known after apply)
+      + name                        = "allow-ssh-from-automation"
+      + network_security_group_name = "nsg-vm-workload"
+      + priority                    = 100
+      + protocol                    = "Tcp"
+      + resource_group_name         = "rg-hybrid-infra-lab"
+      + source_address_prefix       = "10.20.1.0/24"
+      + source_port_range           = "*"
+    }
+
+  # azurerm_subnet.automation will be created
+  + resource "azurerm_subnet" "automation" {
+      + address_prefixes                              = [
+          + "10.20.1.0/24",
+        ]
+      + default_outbound_access_enabled               = true
+      + id                                            = (known after apply)
+      + name                                          = "snet-automation"
+      + private_endpoint_network_policies             = "Disabled"
+      + private_link_service_network_policies_enabled = true
+      + resource_group_name                           = "rg-hybrid-infra-lab"
+      + virtual_network_name                          = "vnet-hybrid-infra"
+    }
+
+  # azurerm_subnet.workload will be created
+  + resource "azurerm_subnet" "workload" {
+      + address_prefixes                              = [
+          + "10.20.2.0/24",
+        ]
+      + default_outbound_access_enabled               = true
+      + id                                            = (known after apply)
+      + name                                          = "snet-workload"
+      + private_endpoint_network_policies             = "Disabled"
+      + private_link_service_network_policies_enabled = true
+      + resource_group_name                           = "rg-hybrid-infra-lab"
+      + virtual_network_name                          = "vnet-hybrid-infra"
+    }
+
+  # azurerm_subnet_network_security_group_association.cm will be created
+  + resource "azurerm_subnet_network_security_group_association" "cm" {
+      + id                        = (known after apply)
+      + network_security_group_id = (known after apply)
+      + subnet_id                 = (known after apply)
+    }
+
+  # azurerm_subnet_network_security_group_association.workload will be created
+  + resource "azurerm_subnet_network_security_group_association" "workload" {
+      + id                        = (known after apply)
+      + network_security_group_id = (known after apply)
+      + subnet_id                 = (known after apply)
+    }
+
+  # azurerm_virtual_network.main will be created
+  + resource "azurerm_virtual_network" "main" {
+      + address_space                  = [
+          + "10.20.0.0/16",
+        ]
+      + dns_servers                    = (known after apply)
+      + guid                           = (known after apply)
+      + id                             = (known after apply)
+      + location                       = "centralindia"
+      + name                           = "vnet-hybrid-infra"
+      + private_endpoint_vnet_policies = "Disabled"
+      + resource_group_name            = "rg-hybrid-infra-lab"
+      + subnet                         = (known after apply)
+      + tags                           = {
+          + "managed_by" = "terraform"
+        }
+    }
+
+  # terraform_data.cm_cloud_init["vm-cm-01"] will be created
+  + resource "terraform_data" "cm_cloud_init" {
+      + id     = (known after apply)
+      + input  = (sensitive value)
+      + output = (known after apply)
+    }
+
+  # terraform_data.workload_cloud_init["vm-workload-01"] will be created
+  + resource "terraform_data" "workload_cloud_init" {
+      + id     = (known after apply)
+      + input  = (known after apply)
+      + output = (known after apply)
+    }
+
+  # tls_private_key.internal_lab_key will be created
+  + resource "tls_private_key" "internal_lab_key" {
+      + algorithm                     = "RSA"
+      + ecdsa_curve                   = "P224"
+      + id                            = (known after apply)
+      + private_key_openssh           = (sensitive value)
+      + private_key_pem               = (sensitive value)
+      + private_key_pem_pkcs8         = (sensitive value)
+      + public_key_fingerprint_md5    = (known after apply)
+      + public_key_fingerprint_sha256 = (known after apply)
+      + public_key_openssh            = (known after apply)
+      + public_key_pem                = (known after apply)
+      + rsa_bits                      = 4096
+    }
+
+Plan: 17 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + admin_username          = "azureadmin"
+  + automation_subnet_id    = (known after apply)
+  + control_vm_ids          = {
+      + vm-cm-01 = (known after apply)
+    }
+  + control_vm_names        = [
+      + "vm-cm-01",
+    ]
+  + control_vm_private_ips  = {
+      + vm-cm-01 = (known after apply)
+    }
+  + resource_group_name     = "rg-hybrid-infra-lab"
+  + vnet_name               = "vnet-hybrid-infra"
+  + workload_subnet_id      = (known after apply)
+  + workload_vm_ids         = {
+      + vm-workload-01 = (known after apply)
+    }
+  + workload_vm_names       = [
+      + "vm-workload-01",
+    ]
+  + workload_vm_private_ips = {
+      + vm-workload-01 = (known after apply)
+    }
+```
+
+Code verify azure and tailscale
+
+```
+az vm list --resource-group "rg-hybrid-infra-lab" --show-details --query "[].{name:name,power:powerState,privateIp:privateIps}" --output table
+az network vnet subnet list --resource-group "rg-hybrid-infra-lab" --vnet-name "vnet-hybrid-infra" --output table
+az vm identity show --resource-group "rg-hybrid-infra-lab" --name "vm-cm-01" --output json
+```
+
+result
+```
+PS C:\01-dev\hybrid-infra-lab> az vm list --resource-group "rg-hybrid-infra-lab" --show-details --query "[].{name:name,power:powerState,privateIp:privateIps}" --output table
+Name            Power       PrivateIp
+--------------  ----------  -----------
+vm-cm-01        VM running  10.20.1.4
+vm-workload-01  VM running  10.20.2.4
+PS C:\01-dev\hybrid-infra-lab> az network vnet subnet list --resource-group "rg-hybrid-infra-lab" --vnet-name "vnet-hkPolicies    ProvisioningState    ResourceGroup
+---------------  -----------------------  ---------------  --------------------------------  -----------------------------------  -------------------  -------------------
+10.20.2.0/24     True                     snet-workload    Disabled                          Enabled                              Succeeded            rg-hybrid-infra-lab
+10.20.1.0/24     True                     snet-automation  Disabled                          Enabled                              Succeeded            rg-hybrid-infra-lab
+PS C:\01-dev\hybrid-infra-lab> az vm identity show --resource-group "rg-hybrid-infra-lab" --name "vm-cm-01" --output 
+json
+{
+  "type": "UserAssigned",
+  "userAssignedIdentities": {
+    "/subscriptions/8523e1c3-049c-4821-b08d-ba4c677080ac/resourceGroups/rg-hybrid-infra-lab/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-cm": {
+      "clientId": "745d51c2-8812-4f9f-b8bc-0b375690e8b9",
+      "principalId": "26b06b80-a0b0-40c7-97c3-b7934444a1bf"
+    }
+  }
+}
+```
+
+### Verify Ansible services
+
+ssh azureadmin@vm-cm-01
+ssh azureadmin@100.87.181.126
+
+
+code
+```
+cd /home/azureadmin/hybrid-infra-lab/ansible
+az login --identity
+./inventory/generate_inventory.sh
+ansible-inventory -i inventory/generated/azure.yml --graph
+```
+result
+```
+azureadmin@vm-cm-01:~$ cd /home/azureadmin/hybrid-infra-lab/ansible
+azureadmin@vm-cm-01:~/hybrid-infra-lab/ansible$ az login --identity
+[
+  {
+    "environmentName": "AzureCloud",
+    "homeTenantId": "25249825-52b8-4478-bd14-bc39033c86d0",
+    "id": "8523e1c3-049c-4821-b08d-ba4c677080ac",
+    "isDefault": true,
+    "managedByTenants": [],
+    "name": "s2jhd",
+    "state": "Enabled",
+    "tenantId": "25249825-52b8-4478-bd14-bc39033c86d0",
+    "user": {
+      "assignedIdentityInfo": "MSI",
+      "name": "systemAssignedIdentity",
+      "type": "servicePrincipal"
+    }
+  }
+]
+azureadmin@vm-cm-01:~/hybrid-infra-lab/ansible$ ./inventory/generate_inventory.sh
+Inventory generated:
+all:
+  vars:
+    ansible_user: azureadmin
+    ansible_ssh_private_key_file: ~/.ssh/vm-cm-workload
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null'
+  children:
+    control:
+      hosts:
+        vm-cm-01:
+          ansible_host: 10.20.1.4
+          ansible_connection: local
+    workload:
+      hosts:
+        vm-workload-01:
+          ansible_host: 10.20.2.4
+azureadmin@vm-cm-01:~/hybrid-infra-lab/ansible$ ansible-inventory -i inventory/generated/azure.yml --graph
+@all:
+  |--@ungrouped:
+  |--@control:
+  |  |--vm-cm-01
+  |--@workload:
+  |  |--vm-workload-01
+```
+
+result
+```
+vm-workload-01 | CHANGED | rc=0 >>
+nginx: active
+sample-app: active
+postgresql: active
+node_exporter: active
+nginx response: Hybrid Infrastructure Lab - Application OK
+app response: Hybrid Infrastructure Lab - Application OK
+Node Exporter metrics:
+# HELP go_gc_duration_seconds A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 0curl: (23) Failure writing output to destination
+```
+
+connect to vm-workload
+```
+ssh -i ~/.ssh/vm-cm-workload azureadmin@10.20.2.4
+```
+
+### Destroy the temporary VM environment
+
+## 08 — Limitations, Security Considerations, and Cleanup

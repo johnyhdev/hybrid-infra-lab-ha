@@ -1,0 +1,10 @@
+profile: min
+
+# Replaces the old role_name_check: false setting
+skip_list:
+  - role-name
+  - yaml[formatting]
+
+# Exclude paths that do not need linting
+exclude_paths:
+  - .github/

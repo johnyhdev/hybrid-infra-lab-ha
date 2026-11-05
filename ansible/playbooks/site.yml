@@ -1,0 +1,6 @@
+---
+- name: Import baseline setup playbook
+  ansible.builtin.import_playbook: baseline.yml
+
+- name: Import application deployment playbook
+  ansible.builtin.import_playbook: application.yml

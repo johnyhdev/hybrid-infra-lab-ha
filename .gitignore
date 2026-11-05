@@ -1,0 +1,46 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+tfplan.*
+*-tfplan.txt
+tfplan.txt
+destroy-plan.txt
+destroy-execution.out
+plan-metadata.txt
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Secrets
+.env
+*.pem
+*.key
+*.pfx
+credentials.json
+# Common extensionless SSH private-key filenames. Public-key files (*.pub) remain trackable.
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# IDE
+.vscode/
+.idea/
+
+# Generated security scan reports may expose infrastructure details
+checkov-result.json/
+
+# Generated Ansible inventory contains private topology details
+/ansible/inventory/generated/
+
+# OS
+.DS_Store
+Thumbs.db

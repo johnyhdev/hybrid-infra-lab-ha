@@ -1,0 +1,6 @@
+---
+
+ansible_user: azureadmin
+ansible_python_interpreter: /usr/bin/python3
+
+timezone: Asia/Ho_Chi_Minh

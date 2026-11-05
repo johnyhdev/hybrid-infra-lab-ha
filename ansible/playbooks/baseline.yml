@@ -1,0 +1,16 @@
+---
+
+- name: Configure Ubuntu control nodes
+  hosts: control
+  become: true
+
+  roles:
+    - linux_baseline
+
+
+- name: Configure Ubuntu workload nodes
+  hosts: workload
+  become: true
+
+  roles:
+    - linux_baseline

@@ -1,0 +1,200 @@
+name: Terraform VM Resource Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Confirm that the reviewed plan may destroy VM-resource resources
+        required: true
+        type: choice
+        options:
+          - no
+          - yes
+        default: no
+
+concurrency:
+  group: terraform-vmresource-state-lock
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-request:
+    name: Validate Destruction Request
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require main branch and explicit confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "Destroy can only run from the main branch."
+            exit 1
+          fi
+          if [ "$CONFIRMATION" != "yes" ] && [ "$CONFIRMATION" != "true" ]; then
+            echo "Set confirmation to yes only when you intend to review a destroy plan."
+            exit 1
+          fi
+
+  plan:
+    name: Create and Publish Destroy Plan
+    needs: validate-request
+    runs-on: ubuntu-24.04
+    environment: terraform-vmresource-plan
+
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: terraform/02-vmresource
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
+      TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+
+    outputs:
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout main revision
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Create saved destroy plan
+        run: terraform plan -destroy -no-color -out=destroy.tfplan
+
+      - name: Render plan for review
+        run: terraform show -no-color destroy.tfplan > destroy-plan.txt
+
+      - name: Create artifact metadata
+        id: metadata
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          ARTIFACT_NAME="terraform-vmresource-destroy-${RUN_ID}-${RUN_ATTEMPT}"
+          {
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Root Module: terraform/02-vmresource"
+            echo "Commit SHA: $GITHUB_SHA"
+            echo "Workflow Run ID: $RUN_ID"
+            echo "Workflow Run Attempt: $RUN_ATTEMPT"
+            echo "Plan Artifact: $ARTIFACT_NAME"
+          } > destroy-plan-metadata.txt
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Publish destroy plan summary
+        run: |
+          {
+            echo "## Terraform VM Resource Destroy Plan — Review Required"
+            echo
+            echo "Review the complete plan and target subscription before approving the protected terraform-destroy Environment. The apply job uses this exact saved plan."
+            echo
+            echo '```text'
+            cat destroy-plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload saved destroy plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            terraform/02-vmresource/destroy.tfplan
+            terraform/02-vmresource/destroy-plan.txt
+            terraform/02-vmresource/destroy-plan-metadata.txt
+          retention-days: 1
+
+  apply:
+    name: Apply Reviewed Destroy Plan
+    needs: plan
+    runs-on: ubuntu-24.04
+    environment: terraform-destroy
+
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+
+    defaults:
+      run:
+        working-directory: terraform/02-vmresource
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
+      TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+
+    steps:
+      - name: Checkout same main revision
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download saved plan from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.plan.outputs.artifact_name }}
+          path: terraform/02-vmresource
+
+      - name: Verify plan provenance
+        env:
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_ARTIFACT: ${{ needs.plan.outputs.artifact_name }}
+        run: |
+          test -f destroy.tfplan
+          test -f destroy-plan.txt
+          test -f destroy-plan-metadata.txt
+          grep -Fx "Repository: $GITHUB_REPOSITORY" destroy-plan-metadata.txt
+          grep -Fx "Root Module: terraform/02-vmresource" destroy-plan-metadata.txt
+          grep -Fx "Commit SHA: $GITHUB_SHA" destroy-plan-metadata.txt
+          grep -Fx "Workflow Run ID: $EXPECTED_RUN_ID" destroy-plan-metadata.txt
+          grep -Fx "Plan Artifact: $EXPECTED_ARTIFACT" destroy-plan-metadata.txt
+
+      - name: Apply exact reviewed destroy plan
+        run: terraform apply -auto-approve -no-color destroy.tfplan

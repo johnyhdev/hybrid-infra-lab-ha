@@ -1,0 +1,164 @@
+name: Terraform Identity Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: terraform-identity-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-changes:
+    name: Check Path Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      has_changes: ${{ steps.filter.outputs.identity }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Identity module changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            identity:
+              - 'terraform/01-identity/**'
+              - 'bootstrap/**'
+              - '.github/workflows/terraform-identity-*.yml'
+              - '.tflint.hcl'
+              - '.checkov.yaml'
+
+  plan:
+    name: Terraform Identity Plan
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.has_changes == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    environment: terraform-identity-plan
+
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: terraform/01-identity
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # --- [Optimized: Terraform Providers] ---
+      - name: Cache Terraform Providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugins
+            terraform/01-identity/.terraform
+          key: ${{ runner.os }}-tf-identity-${{ hashFiles('terraform/01-identity/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-identity-
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      # --- [Optimized CACHE: TFLint Plugins] ---
+      - name: Cache TFLint Plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: ${{ runner.os }}-tflint-${{ hashFiles('.tflint.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tflint-
+
+      - name: TFLint Init
+        run: tflint --init
+
+      - name: TFLint Check
+        run: tflint --recursive
+
+      # --- [Optimized CACHE: Python Pip cho Checkov] ---
+      - name: Cache Python Pip for Checkov
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-checkov
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Checkov Security Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/01-identity
+          framework: terraform
+          config_file: .checkov.yaml
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Use a unique plan filename for the identity module to avoid overwriting another plan
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=identity.tfplan
+
+      - name: Show Terraform Plan
+        run: terraform show -no-color identity.tfplan > identity-tfplan.txt
+
+      - name: Publish Terraform Plan Summary
+        run: |
+          echo "## Terraform Identity Plan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat identity-tfplan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create Plan Metadata
+        run: |
+          cat > plan-metadata.txt <<EOF
+          Repository: $GITHUB_REPOSITORY
+          Root Module: terraform/01-identity
+          Commit SHA: ${{ github.event.pull_request.head.sha }}
+          PR Number: ${{ github.event.pull_request.number }}
+          PR Head SHA: ${{ github.event.pull_request.head.sha }}
+          Workflow Run ID: ${{ github.run_id }}
+          Plan Artifact: terraform-identity-plan-${{ github.event.pull_request.head.sha }}
+          EOF
+
+      - name: Upload Terraform Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-identity-plan-${{ github.event.pull_request.head.sha }}
+          path: |
+            terraform/01-identity/identity.tfplan
+            terraform/01-identity/identity-tfplan.txt
+            terraform/01-identity/plan-metadata.txt
+          retention-days: 7

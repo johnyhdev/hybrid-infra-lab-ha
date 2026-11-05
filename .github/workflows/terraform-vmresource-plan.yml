@@ -1,0 +1,188 @@
+name: Terraform VM Resource Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: terraform-vmresource-state-lock
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  terraform-vmresource-plan:
+    name: Terraform VM Resource Plan
+    runs-on: ubuntu-24.04
+    environment: terraform-vmresource-plan
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+
+    defaults:
+      run:
+        working-directory: terraform/02-vmresource
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true
+
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
+      TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. Check whether the PR changes VM resource files.
+      - name: Check for VM Resource Changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'terraform/02-vmresource/**'
+              - 'bootstrap/**'
+              - '.github/workflows/terraform-vmresource-*.yml'
+              - '.tflint.hcl'
+              - '.checkov.yaml'
+
+      # 2. Run the following steps only when steps.changes.outputs.src == 'true'.
+      - name: Azure Login
+        if: steps.changes.outputs.src == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        if: steps.changes.outputs.src == 'true'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # --- [Optimized CACHE: Terraform Providers] ---
+      - name: Cache Terraform Providers & CLI Plugins
+        if: steps.changes.outputs.src == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugins
+            terraform/02-vmresource/.terraform
+          key: ${{ runner.os }}-tf-provider-${{ hashFiles('terraform/02-vmresource/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-provider-
+
+      - name: Setup TFLint
+        if: steps.changes.outputs.src == 'true'
+        uses: terraform-linters/setup-tflint@v5
+
+      # --- [Optimized CACHE: TFLint Plugins] ---
+      - name: Cache TFLint Plugins
+        if: steps.changes.outputs.src == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: ${{ runner.os }}-tflint-${{ hashFiles('.tflint.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tflint-
+
+      - name: TFLint Init
+        if: steps.changes.outputs.src == 'true'
+        run: tflint --init
+
+      - name: TFLint
+        if: steps.changes.outputs.src == 'true'
+        run: tflint --recursive
+
+      # --- [Optimized CACHE: Python Pip cho Checkov] ---
+      - name: Cache Python Pip for Checkov
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-checkov
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Checkov Security Scan
+        if: steps.changes.outputs.src == 'true'
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/02-vmresource
+          framework: terraform
+          config_file: .checkov.yaml
+
+      - name: Terraform Version
+        if: steps.changes.outputs.src == 'true'
+        run: terraform version
+
+      - name: Terraform Init
+        if: steps.changes.outputs.src == 'true'
+        run: terraform init
+
+      - name: Terraform Format Check
+        if: steps.changes.outputs.src == 'true'
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        if: steps.changes.outputs.src == 'true'
+        run: terraform validate
+
+      - name: Terraform Plan
+        if: steps.changes.outputs.src == 'true'
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Show Terraform Plan
+        if: steps.changes.outputs.src == 'true'
+        run: terraform show -no-color tfplan > tfplan.txt
+
+      - name: Publish Terraform Plan Summary
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          echo "## Terraform VM Resource Plan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat tfplan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create Plan Metadata
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          cat > plan-metadata.txt <<EOF
+          Repository: $GITHUB_REPOSITORY
+          Root Module: terraform/02-vmresource
+          Commit SHA: ${{ github.event.pull_request.head.sha }}
+          PR Number: ${{ github.event.pull_request.number }}
+          PR Head SHA: ${{ github.event.pull_request.head.sha }}
+          Workflow Run ID: ${{ github.run_id }}
+          Workflow Run Attempt: ${{ github.run_attempt }}
+          Plan Artifact: terraform-vmresource-plan-${{ github.event.pull_request.head.sha }}
+          EOF
+
+      - name: Upload Terraform Plan Artifact
+        if: steps.changes.outputs.src == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-vmresource-plan-${{ github.event.pull_request.head.sha }}
+          path: |
+            terraform/02-vmresource/tfplan
+            terraform/02-vmresource/tfplan.txt
+            terraform/02-vmresource/plan-metadata.txt
+          retention-days: 7
+
+      # 3. Report a successful skip when no VM resource files changed.
+      - name: Skip Execution Notification
+        if: steps.changes.outputs.src == 'false'
+        run: echo "No VM Resource files changed in this PR. Plan skipped safely."

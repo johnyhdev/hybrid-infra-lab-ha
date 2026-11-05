@@ -1,0 +1,12 @@
+---
+
+- name: Configure workload application stack
+  hosts: workload
+  become: true
+
+  roles:
+    - linux_baseline
+    - postgresql
+    - sample_app
+    - nginx
+    - node_exporter

@@ -1,0 +1,6 @@
+---
+
+nginx_enabled: true
+postgresql_enabled: true
+sample_app_enabled: true
+node_exporter_enabled: true

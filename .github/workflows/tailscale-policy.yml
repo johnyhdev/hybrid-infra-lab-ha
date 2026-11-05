@@ -1,0 +1,137 @@
+name: Tailscale Policy
+
+on:
+  pull_request:
+    paths:
+      - "tailscale/policy.hujson"
+      - ".github/workflows/tailscale-policy.yml"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "tailscale/policy.hujson"
+      - ".github/workflows/tailscale-policy.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  # ==========================================
+  # JOB 1: Test Policy on Pull Request & Comment Result
+  # ==========================================
+  test-policy:
+    name: Test Tailscale Policy (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: tailscale-policy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test Policy
+        id: test_acl
+        uses: tailscale/gitops-acl-action@v1
+        with:
+          oauth-client-id: ${{ vars.TAILSCALE_POLICY_CLIENT_ID }}
+          audience: ${{ vars.TAILSCALE_POLICY_AUDIENCE }}
+          tailnet: ${{ vars.TAILSCALE_TAILNET }}
+          policy-file: tailscale/policy.hujson
+          action: test
+
+      - name: Comment PR - Policy Test Passed
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "✅ **Tailscale Policy Test Passed!**
+
+          Syntax and structure of \`tailscale/policy.hujson\` are valid. Once this PR is merged into \`main\`, the workflow will require manual approval before applying changes to the Tailnet."
+
+      - name: Comment PR - Policy Test Failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "❌ **Tailscale Policy Test Failed!**
+
+          The \`tailscale/policy.hujson\` file contains syntax errors or ACL policy violations. Please check the [Workflow Run Logs](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) for details."
+
+  # ==========================================
+  # JOB 2: Notify Approval Needed when Merged to Main
+  # ==========================================
+  notify-waiting:
+    name: Notify Tailscale Apply Approval Needed
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      pr_number: ${{ steps.find-pr.outputs.PR_NUMBER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find Merged PR
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_JSON=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls")
+
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
+
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment Approval Request on PR
+        if: steps.find-pr.outputs.PR_NUMBER != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "🔒 **Tailscale Policy Apply** workflow has been triggered on \`main\`.
+
+          Environment \`tailscale-policy\` is **waiting for manual approval** before updating ACLs on the Tailnet.
+
+          👉 [Review and Approve Workflow Run](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+
+  # ==========================================
+  # JOB 3: Apply Policy after Environment Approval
+  # ==========================================
+  apply-policy:
+    name: Apply Tailscale Policy
+    needs: notify-waiting
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: tailscale-policy # Requires manual approval configured in GitHub Settings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply Policy
+        uses: tailscale/gitops-acl-action@v1
+        with:
+          oauth-client-id: ${{ vars.TAILSCALE_POLICY_CLIENT_ID }}
+          audience: ${{ vars.TAILSCALE_POLICY_AUDIENCE }}
+          tailnet: ${{ vars.TAILSCALE_TAILNET }}
+          policy-file: tailscale/policy.hujson
+          action: apply
+
+      - name: Comment Success on PR
+        if: success() && needs.notify-waiting.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.notify-waiting.outputs.pr_number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "🚀 **Tailscale Policy Applied Successfully!**
+
+          New ACL rules in \`tailscale/policy.hujson\` have been updated directly on the Tailnet."

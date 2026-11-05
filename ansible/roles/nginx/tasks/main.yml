@@ -1,0 +1,34 @@
+---
+
+- name: Install Nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Deploy lab Nginx configuration
+  ansible.builtin.template:
+    src: lab.conf.j2
+    dest: /etc/nginx/sites-available/lab.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart nginx
+
+- name: Enable lab Nginx configuration
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/lab.conf
+    dest: /etc/nginx/sites-enabled/lab.conf
+    state: link
+  notify: Restart nginx
+
+- name: Enable Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started

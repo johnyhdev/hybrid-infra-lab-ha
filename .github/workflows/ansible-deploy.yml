@@ -1,0 +1,152 @@
+name: Ansible CD Deploy
+
+on:
+  workflow_run:
+    workflows: ["Terraform VM Resource Apply"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  # ==========================================
+  # JOB 1: Start immediately and post a comment while approval is pending
+  # ==========================================
+  notify-waiting:
+    name: Notify PR Waiting Approval
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      pr_number: ${{ steps.find-pr.outputs.PR_NUMBER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find Merged PR
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          echo "Finding PR for commit: $COMMIT_SHA"
+          PR_JSON=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/commits/${COMMIT_SHA}/pulls")
+
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
+
+          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+            PR_NUMBER=$(gh pr list --state merged --base main --limit 1 --json number --jq '.[0].number')
+          fi
+
+          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+            echo "No pull request found."
+            exit 0
+          fi
+
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Found PR: #$PR_NUMBER"
+
+      - name: Comment Ansible Waiting on PR
+        if: steps.find-pr.outputs.PR_NUMBER != '' && steps.find-pr.outputs.PR_NUMBER != 'null'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "🚀 **Ansible CD Deploy** workflow has been triggered after Terraform apply.
+
+          Environment \`tailscale-ci\` is now **waiting for manual approval**.
+
+          👉 [Review and Approve Workflow Run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+
+  # ==========================================
+  # JOB 2: Run Ansible deployment after any configured environment approval
+  # ==========================================
+  deploy:
+    name: Ansible Continuous Deployment
+    needs: notify-waiting
+    runs-on: ubuntu-24.04
+    environment: tailscale-ci # Requires approval if configured in GitHub
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale Mesh Network via OIDC
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_CI_CLIENT_ID }}
+          audience: ${{ secrets.TAILSCALE_CI_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Resolve CM Node Hostname
+        id: resolve_node
+        run: |
+          echo "Resolving CM node targeted with tag:cm..."
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+          TARGET_IP=""
+
+          until [ -n "$TARGET_IP" ]; do
+            TARGET_IP=$(tailscale status --json | jq -r '.Peer[] | select(.Tags[]? == "tag:cm" and .Online == true) | .TailscaleIPs[0]' | head -n 1)
+
+            if [ -n "$TARGET_IP" ] && [ "$TARGET_IP" != "null" ]; then
+              echo "Found CM Node IP: $TARGET_IP"
+              echo "cm_ip=$TARGET_IP" >> $GITHUB_OUTPUT
+              break
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "ERROR: Timed out waiting for CM Node with tag:cm to register on Tailscale."
+              exit 1
+            fi
+
+            echo "CM Node with tag:cm not online yet. Retrying in 5s... ($RETRY_COUNT/$MAX_RETRIES)"
+            sleep 5
+          done
+
+      - name: Wait for CM Node Cloud-Init Completion
+        run: |
+          TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
+          echo "Waiting for SSH service and Cloud-Init bootstrapping on IP: $TARGET_IP..."
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+          
+          until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 azureadmin@$TARGET_IP "test -f /var/log/cloud-init-done.tag && test -d /home/azureadmin/hybrid-infra-lab" 2>/dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "ERROR: Timed out waiting for Cloud-Init setup to complete on $TARGET_IP."
+              exit 1
+            fi
+            echo "Cloud-init or Git repo setup still in progress... Retrying in 5s ($RETRY_COUNT/$MAX_RETRIES)"
+            sleep 5
+          done
+          echo "CM Node Cloud-Init and Repository setup are 100% ready!"
+
+      - name: Trigger Remote Ansible Execution on CM Node
+        run: |
+          TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
+          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
+
+      - name: Comment Ansible Deploy Success on PR
+        if: success() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.notify-waiting.outputs.pr_number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "✅ **Ansible CD Deploy** workflow completed successfully! Configuration management applied via Control Manager node."
+
+      - name: Comment Ansible Deploy Failure on PR
+        if: failure() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.notify-waiting.outputs.pr_number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "❌ **Ansible CD Deploy** workflow failed. Please check the [Workflow Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

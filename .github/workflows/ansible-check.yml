@@ -1,0 +1,53 @@
+name: Ansible Check
+
+on:
+  pull_request:
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ansible-check.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # --- [Optimized: CACHE PYTHON PIP CHO ANSIBLE & LINT] ---
+      - name: Cache Pip Packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-ansible-${{ hashFiles('ansible/requirements.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-ansible-
+
+      - name: Install Ansible & Ansible Lint
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core ansible-lint
+
+      - name: Install Ansible collections
+        run: |
+          ansible-galaxy collection install community.general
+
+      - name: Syntax check
+        env:
+          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles:${{ github.workspace }}/ansible/playbooks/roles
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/hosts.yml \
+            ansible/playbooks/site.yml \
+            --syntax-check
+
+      - name: Run ansible-lint
+        env:
+          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles:${{ github.workspace }}/ansible/playbooks/roles
+        run: |
+          ansible-lint ansible/

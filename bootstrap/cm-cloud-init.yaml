@@ -1,0 +1,168 @@
+#cloud-config
+
+hostname: ${hostname}
+fqdn: ${hostname}
+manage_etc_hosts: true
+
+package_update: true
+
+packages:
+  - curl
+  - ca-certificates
+  - git
+  - jq
+  - tar
+  - python3
+  - python3-pip
+  - python3-venv
+
+write_files:
+
+  # ------------------------------------------------------------
+  # IP forwarding for Tailscale subnet routing
+  # ------------------------------------------------------------
+  - path: /etc/sysctl.d/99-tailscale.conf
+    permissions: "0644"
+    owner: root:root
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+
+  # ------------------------------------------------------------
+  # Install Tailscale
+  # ------------------------------------------------------------
+  - path: /usr/local/bin/install-tailscale.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      if command -v tailscale >/dev/null 2>&1; then
+        echo "Tailscale already installed."
+        tailscale version
+        exit 0
+      fi
+
+      echo "Installing Tailscale..."
+      curl -fsSL https://tailscale.com/install.sh | sh
+      tailscale version
+
+  # ------------------------------------------------------------
+  # Join Tailscale using Azure Managed Identity + WIF
+  # ------------------------------------------------------------
+  - path: /usr/local/bin/join-tailscale.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      TS_STATUS="$(tailscale status --json 2>/dev/null | jq -r '.BackendState // empty' || true)"
+
+      if [ "$${TS_STATUS}" = "Running" ]; then
+        echo "Tailscale is already Running."
+        exit 0
+      fi
+
+      echo "Waiting for Azure Managed Identity..."
+      AZURE_JWT_TOKEN=""
+
+      for i in {1..30}; do
+        AZURE_JWT_TOKEN="$(curl -fsS -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource=api://AzureADTokenExchange" | jq -r '.access_token // empty')" || true
+
+        if [ -n "$${AZURE_JWT_TOKEN}" ]; then
+          echo "Azure Managed Identity token acquired."
+          break
+        fi
+
+        echo "Managed Identity not ready. Retry $${i}/30..."
+        sleep 3
+      done
+
+      if [ -z "$${AZURE_JWT_TOKEN}" ]; then
+        echo "ERROR: Failed to obtain Azure Managed Identity token."
+        exit 1
+      fi
+
+      echo "Joining Tailscale..."
+      tailscale up --reset --id-token="$${AZURE_JWT_TOKEN}" --client-id="${tailscale_cm_client_id}" --audience="${tailscale_cm_audience}" --advertise-tags=tag:cm --hostname="$(hostname)" --advertise-routes="${workload_subnet_cidr}" --accept-routes --ssh
+
+      unset AZURE_JWT_TOKEN
+      echo "Tailscale join completed."
+      tailscale status
+
+  # ------------------------------------------------------------
+  # Automatically join Tailscale after tailscaled is ready
+  # ------------------------------------------------------------
+  - path: /etc/systemd/system/tailscale-auto-join.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Tailscale Auto-Join with Azure OIDC
+      After=network-online.target tailscaled.service
+      Wants=network-online.target tailscaled.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/join-tailscale.sh
+      RemainAfterExit=yes
+      Restart=on-failure
+      RestartSec=10s
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # 1. Prepare CM -> workload SSH key
+  - [ sh, -c, "mkdir -p /home/azureadmin/.ssh && chmod 700 /home/azureadmin/.ssh" ]
+  - [ sh, -c, "echo '${internal_private_key_b64}' | base64 -d > /home/azureadmin/.ssh/vm-cm-workload" ]
+  - [ sh, -c, "echo '${internal_public_key}' > /home/azureadmin/.ssh/vm-cm-workload.pub" ]
+  - [ sh, -c, "chmod 600 /home/azureadmin/.ssh/vm-cm-workload && chmod 644 /home/azureadmin/.ssh/vm-cm-workload.pub" ]
+  - [ sh, -c, "chown -R azureadmin:azureadmin /home/azureadmin/.ssh" ]
+
+  # 2. Enable IP forwarding
+  - [ sysctl, --system ]
+
+  # 3. Create 2 GB swap
+  - [ sh, -c, "if [ ! -f /swapfile ]; then fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048; fi" ]
+  - [ sh, -c, "chmod 600 /swapfile" ]
+  - [ sh, -c, "if ! swapon --show | grep -q '/swapfile'; then mkswap /swapfile || true; swapon /swapfile; fi" ]
+  - [ sh, -c, "if ! grep -q '^/swapfile ' /etc/fstab; then echo '/swapfile swap swap defaults 0 0' >> /etc/fstab; fi" ]
+
+  # 4. Configure UFW
+  - [ ufw, allow, ssh ]
+  - [ ufw, default, allow, routed ]
+  - [ ufw, --force, enable ]
+
+  # 5. Install & enable Tailscale
+  - [ /usr/local/bin/install-tailscale.sh ]
+  - [ systemctl, enable, --now, tailscaled ]
+
+  # 6. Enable automatic Tailscale join
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, tailscale-auto-join.service ]
+
+  # 7. Install Azure CLI
+  - [ sh, -c, "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done" ]
+  - [ sh, -c, "export DEBIAN_FRONTEND=noninteractive && curl -sL https://aka.ms/InstallAzureCLIDeb | bash" ]
+
+  # 8 & 9. Create Ansible venv & global symlinks
+  - [ python3, -m, venv, /opt/ansible-venv ]
+  - [ /opt/ansible-venv/bin/pip, install, --upgrade, pip ]
+  - [ /opt/ansible-venv/bin/pip, install, ansible-core ]
+  - [ ln, -sf, /opt/ansible-venv/bin/ansible, /usr/local/bin/ansible ]
+  - [ ln, -sf, /opt/ansible-venv/bin/ansible-playbook, /usr/local/bin/ansible-playbook ]
+  - [ ln, -sf, /opt/ansible-venv/bin/ansible-inventory, /usr/local/bin/ansible-inventory ]
+  - [ ln, -sf, /opt/ansible-venv/bin/ansible-galaxy, /usr/local/bin/ansible-galaxy ]
+
+  # 10. Install Ansible collection
+  - [ sudo, -u, azureadmin, /opt/ansible-venv/bin/ansible-galaxy, collection, install, community.general ]
+
+  # 11. Clone infrastructure repository
+  - [ sh, -c, "if [ ! -d /home/azureadmin/hybrid-infra-lab ]; then sudo -u azureadmin git clone https://github.com/johnyhdev/hybrid-infra-lab.git /home/azureadmin/hybrid-infra-lab; fi" ]
+  - [ chown, -R, "azureadmin:azureadmin", /home/azureadmin/ ]
+
+  # 12. Completion marker
+  - [ touch, /var/log/cloud-init-done.tag ]

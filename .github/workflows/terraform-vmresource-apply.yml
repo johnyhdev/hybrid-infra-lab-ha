@@ -1,0 +1,273 @@
+name: Terraform VM Resource Apply
+
+on:
+  push:
+    branches:
+      - main
+    # Run on every push to main; the job filters paths after it starts.
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Find Approved Terraform VM Resource Plan
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+
+    outputs:
+      has_changes: ${{ steps.changes.outputs.src }}
+      plan_run_id: ${{ steps.find-plan.outputs.plan_run_id }}
+      plan_sha: ${{ steps.find-plan.outputs.plan_sha }}
+      artifact_name: ${{ steps.find-plan.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. Check whether the merged commit changed VM resource files.
+      - name: Check for VM Resource Changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'terraform/02-vmresource/**'
+              - 'bootstrap/**'
+              - '.github/workflows/terraform-vmresource-*.yml'
+              - '.tflint.hcl'
+              - '.checkov.yaml'
+
+      - name: Show Merge Commit
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          echo "Main Commit SHA:"
+          echo "$GITHUB_SHA"
+
+      - name: Find Merged PR
+        if: steps.changes.outputs.src == 'true'
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_JSON=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls")
+
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
+          PR_HEAD_SHA=$(echo "$PR_JSON" | jq -r '.[0].head.sha')
+
+          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+            echo "No pull request found for commit ${GITHUB_SHA}"
+            exit 1
+          fi
+
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Find Successful Terraform VM Resource Plan
+        if: steps.changes.outputs.src == 'true'
+        id: find-plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ steps.find-pr.outputs.PR_HEAD_SHA }}
+        run: |
+          RUN_JSON=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow terraform-vmresource-plan.yml \
+            --commit "$PR_HEAD_SHA" \
+            --status success \
+            --limit 10 \
+            --json databaseId,headSha,status,conclusion,workflowName)
+
+          PLAN_RUN_ID=$(echo "$RUN_JSON" | jq -r '.[0].databaseId')
+          PLAN_SHA=$(echo "$RUN_JSON" | jq -r '.[0].headSha')
+
+          if [ -z "$PLAN_RUN_ID" ] \vert{}\vert{} [ "$PLAN_RUN_ID" = "null" ]; then
+            echo "No successful Terraform VM Resource Plan run found."
+            echo "Expected SHA: $PR_HEAD_SHA"
+            exit 1
+          fi
+
+          if [ "$PLAN_SHA" != "$PR_HEAD_SHA" ]; then
+            echo "Terraform VM Resource Plan SHA mismatch."
+            echo "Expected: $PR_HEAD_SHA"
+            echo "Found:    $PLAN_SHA"
+            exit 1
+          fi
+
+          ARTIFACT_NAME="terraform-vmresource-plan-${PR_HEAD_SHA}"
+
+          echo "plan_run_id=$PLAN_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Plan Run
+        if: steps.changes.outputs.src == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ steps.find-plan.outputs.plan_run_id }}
+          EXPECTED_SHA: ${{ steps.find-plan.outputs.plan_sha }}
+        run: |
+          ACTUAL_SHA=$(gh run view "$PLAN_RUN_ID" \
+            --json headSha \
+            --jq '.headSha')
+
+          echo "Expected SHA: $EXPECTED_SHA"
+          echo "Actual SHA:   $ACTUAL_SHA"
+
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "ERROR: Terraform VM Resource Plan SHA mismatch."
+            exit 1
+          fi
+
+          echo "Terraform VM Resource Plan SHA verified."
+
+      - name: Download Approved Plan for Review
+        if: steps.changes.outputs.src == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ steps.find-plan.outputs.plan_run_id }}
+          ARTIFACT_NAME: ${{ steps.find-plan.outputs.artifact_name }}
+        run: |
+          mkdir -p approved-plan
+
+          gh run download "$PLAN_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir approved-plan
+
+          echo "Approved Terraform VM Resource plan downloaded."
+          ls -la approved-plan
+
+      - name: Publish Terraform Plan Summary
+        if: steps.changes.outputs.src == 'true'
+        env:
+          PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
+          PR_HEAD_SHA: ${{ steps.find-pr.outputs.PR_HEAD_SHA }}
+          PLAN_RUN_ID: ${{ steps.find-plan.outputs.plan_run_id }}
+          ARTIFACT_NAME: ${{ steps.find-plan.outputs.artifact_name }}
+        run: |
+          {
+            echo "## Approved Terraform VM Resource Plan"
+            echo
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| PR | #${PR_NUMBER} |"
+            echo "| PR Head SHA | \`${PR_HEAD_SHA}\` |"
+            echo "| Plan Run | \`${PLAN_RUN_ID}\` |"
+            echo "| Artifact | \`${ARTIFACT_NAME}\` |"
+            echo
+            echo "## Terraform Changes"
+            echo
+            echo '```text'
+            cat approved-plan/tfplan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment Approval Request on PR
+        if: steps.changes.outputs.src == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.PR_NUMBER }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "Terraform VM Resource Apply Workflow has been triggered for this PR.
+
+          Environment \`terraform-vmresource-apply\` is waiting for approval.
+
+          Review and approve the run here:
+          https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Skip Notification
+        if: steps.changes.outputs.src == 'false'
+        run: echo "No VM Resource files changed in this merge. Apply skipped safely."
+
+  apply:
+    name: Apply Approved Terraform VM Resource Plan
+    needs: prepare
+    # Run only when the prepare job confirms relevant changes (has_changes == 'true').
+    if: needs.prepare.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    environment: terraform-vmresource-apply
+
+    concurrency:
+      group: terraform-vmresource-state-lock
+      cancel-in-progress: false
+
+    defaults:
+      run:
+        working-directory: terraform/02-vmresource
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_USE_AZUREAD: true
+
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
+      TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+
+    steps:
+      - name: Checkout Main
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Version
+        run: terraform version
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Approved Terraform Plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ needs.prepare.outputs.plan_run_id }}
+          ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact_name }}
+        run: |
+          gh run download "$PLAN_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir .
+
+      - name: Verify Terraform Plan Artifact
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.plan_sha }}
+          EXPECTED_ARTIFACT: ${{ needs.prepare.outputs.artifact_name }}
+        run: |
+          test -f tfplan
+          test -f tfplan.txt
+          test -f plan-metadata.txt
+
+          grep -F "Root Module: terraform/02-vmresource" plan-metadata.txt
+          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata.txt
+          grep -F "Plan Artifact: $EXPECTED_ARTIFACT" plan-metadata.txt
+
+          echo "Terraform VM Resource plan artifact verification: PASS"
+
+      - name: Show Approved Terraform Plan
+        run: terraform show -no-color tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -no-color tfplan
