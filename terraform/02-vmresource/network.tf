@@ -33,7 +33,7 @@ resource "azurerm_subnet" "workload" {
 }
 
 resource "azurerm_network_security_group" "cm" {
-  name                = "nsg-vm-cm"
+  name                = "nsg-vm-cm-ha"
   location            = data.azurerm_resource_group.main.location
   resource_group_name = data.azurerm_resource_group.main.name
 
@@ -44,7 +44,7 @@ resource "azurerm_network_security_group" "cm" {
 }
 
 resource "azurerm_network_security_group" "workload" {
-  name                = "nsg-vm-workload"
+  name                = "nsg-vm-workload-ha"
   location            = data.azurerm_resource_group.main.location
   resource_group_name = data.azurerm_resource_group.main.name
 
