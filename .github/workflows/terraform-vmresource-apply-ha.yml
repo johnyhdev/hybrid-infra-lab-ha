@@ -258,11 +258,11 @@ jobs:
         run: |
           test -f vmresource-ha-tfplan
           test -f vmresource-ha-tfplan.txt
-          test -f plan-metadata-ha.txt
+          test -f vmresource-ha-plan-metadata.txt
 
-          grep -F "Root Module: terraform/02-vmresource" plan-metadata-ha.txt
-          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata-ha.txt
-          grep -F "Plan Artifact: $EXPECTED_ARTIFACT" plan-metadata-ha.txt
+          grep -F "Root Module: terraform/02-vmresource" vmresource-ha-plan-metadata.txt
+          grep -F "PR Head SHA: $EXPECTED_SHA" vmresource-ha-plan-metadata.txt
+          grep -F "Plan Artifact: $EXPECTED_ARTIFACT" vmresource-ha-plan-metadata.txt
 
           echo "Terraform VM Resource plan HA artifact verification: PASS"
 
