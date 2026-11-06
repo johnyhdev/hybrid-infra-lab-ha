@@ -27,21 +27,21 @@ If GitHub issues a different subject format, use the exact claim GitHub issues. 
 
 Create a separate app for each environment:
 
-- `terraform-identity-plan`
-- `terraform-identity-apply`
-- `terraform-vmresource-plan`
-- `terraform-vmresource-apply`
-- `terraform-destroy`
+- `terraform-identity-plan-ha`
+- `terraform-identity-apply-ha`
+- `terraform-vmresource-plan-ha`
+- `terraform-vmresource-apply-ha`
+- `terraform-destroy-ha`
 
 Run this **once** in PowerShell while signed in to the intended Entra tenant. First check whether any of these names already exist:
 
 ```powershell
 $displayNames = @(
-  "terraform-identity-plan",
-  "terraform-identity-apply",
-  "terraform-vmresource-plan",
-  "terraform-vmresource-apply",
-  "terraform-destroy"
+  "terraform-identity-plan-ha",
+  "terraform-identity-apply-ha",
+  "terraform-vmresource-plan-ha",
+  "terraform-vmresource-apply-ha",
+  "terraform-destroy-ha"
 )
 
 foreach ($displayName in $displayNames) {
@@ -54,11 +54,11 @@ If **any** app is listed, stop before running the creation loop; recover and ver
 
 ```powershell
 $displayNames = @(
-  "terraform-identity-plan",
-  "terraform-identity-apply",
-  "terraform-vmresource-plan",
-  "terraform-vmresource-apply",
-  "terraform-destroy"
+  "terraform-identity-plan-ha",
+  "terraform-identity-apply-ha",
+  "terraform-vmresource-plan-ha",
+  "terraform-vmresource-apply-ha",
+  "terraform-destroy-ha"
 )
 
 $appRecords = foreach ($displayName in $displayNames) {
@@ -87,11 +87,11 @@ A federated credential (FIC) is an exact trust rule: the issuer, audience, and s
 
 | GitHub Environment | FIC name | App Registration |
 |---|---|---|
-| `terraform-identity-plan` | `github-terraform-identity-plan` | Identity plan app |
-| `terraform-identity-apply` | `github-terraform-identity-apply` | Identity apply app |
-| `terraform-vmresource-plan` | `github-terraform-vmresource-plan` | VM resource plan app |
-| `terraform-vmresource-apply` | `github-terraform-vmresource-apply` | VM resource apply app |
-| `terraform-destroy` | `github-terraform-destroy` | Destroy app |
+| `terraform-identity-plan-ha` | `github-terraform-identity-plan-ha` | Identity plan app |
+| `terraform-identity-apply-ha` | `github-terraform-identity-apply-ha` | Identity apply app |
+| `terraform-vmresource-plan-ha` | `github-terraform-vmresource-plan-ha` | VM resource plan app |
+| `terraform-vmresource-apply-ha` | `github-terraform-vmresource-apply-ha` | VM resource apply app |
+| `terraform-destroy-ha` | `github-terraform-destroy-ha` | Destroy app |
 
 Use the Application **Object ID** (not Client ID and not Service Principal Object ID) in the Azure `--id` argument. First obtain repository information using the same repository that contains these workflows. In PowerShell, run from any directory after `gh auth login`:
 
@@ -105,12 +105,12 @@ $repoId = $repoInfo.id
 "Repository: $owner/$repoName (ID $repoId); owner ID $ownerId"
 ```
 
-Replace `<OWNER>/<REPOSITORY>` with your actual GitHub slug. Do not use an example repository or IDs copied from another account. The workflow's environment names can be checked in `.github/workflows/terraform-identity-plan.yml`, `.github/workflows/terraform-identity-apply.yml`, `.github/workflows/terraform-vmresource-plan.yml`, `.github/workflows/terraform-vmresource-apply.yml`, and `.github/workflows/terraform-vmresource-destroy.yml`.
+Replace `<OWNER>/<REPOSITORY>` with your actual GitHub slug. Do not use an example repository or IDs copied from another account. The workflow's environment names can be checked in `.github/workflows/terraform-identity-plan-ha.yml`, `.github/workflows/terraform-identity-apply-ha.yml`, `.github/workflows/terraform-vmresource-plan-ha.yml`, `.github/workflows/terraform-vmresource-apply-ha.yml`, and `.github/workflows/terraform-vmresource-destroy-ha.yml`.
 
 For repositories using GitHub's immutable subject format, construct the subject as follows. Confirm that this is the format GitHub issues for your repository; if the actual claim format differs, stop and use the exact `sub` claim GitHub issues rather than trying alternate subjects:
 
 ```powershell
-$environment = "terraform-vmresource-plan"
+$environment = "terraform-vmresource-plan-ha"
 $subject = "repo:$($owner)@$($ownerId)/$($repoName)@$($repoId):environment:$environment"
 $subject
 ```
@@ -136,7 +136,7 @@ If the observed subject does **not** match the immutable format, do not generate
 1. In the PowerShell window, create a temporary folder under the Windows temp directory. This is deliberately not a folder inside your clone:
 
 ```powershell
-$ficDir = Join-Path $env:TEMP "hybrid-lab-federated-credentials"
+$ficDir = Join-Path $env:TEMP "hybrid-lab-federated-credentials-ha"
 New-Item -ItemType Directory -Path $ficDir -Force | Out-Null
 Set-Location $ficDir
 ```
@@ -145,11 +145,11 @@ Set-Location $ficDir
 
 ```powershell
 $appObjectIds = @{
-  "terraform-identity-plan"    = "<IDENTITY_PLAN_APP_OBJECT_ID>"
-  "terraform-identity-apply"   = "<IDENTITY_APPLY_APP_OBJECT_ID>"
-  "terraform-vmresource-plan"  = "<VMRESOURCE_PLAN_APP_OBJECT_ID>"
-  "terraform-vmresource-apply" = "<VMRESOURCE_APPLY_APP_OBJECT_ID>"
-  "terraform-destroy"          = "<DESTROY_APP_OBJECT_ID>"
+  "terraform-identity-plan-ha"    = "<IDENTITY_PLAN_APP_OBJECT_ID>"
+  "terraform-identity-apply-ha"   = "<IDENTITY_APPLY_APP_OBJECT_ID>"
+  "terraform-vmresource-plan-ha"  = "<VMRESOURCE_PLAN_APP_OBJECT_ID>"
+  "terraform-vmresource-apply-ha" = "<VMRESOURCE_APPLY_APP_OBJECT_ID>"
+  "terraform-destroy-ha"          = "<DESTROY_APP_OBJECT_ID>"
 }
 ```
 
@@ -157,11 +157,11 @@ Replace all five placeholders with the actual Application Object IDs before cont
 
 ```powershell
 $environments = @(
-  "terraform-identity-plan",
-  "terraform-identity-apply",
-  "terraform-vmresource-plan",
-  "terraform-vmresource-apply",
-  "terraform-destroy"
+  "terraform-identity-plan-ha",
+  "terraform-identity-apply-ha",
+  "terraform-vmresource-plan-ha",
+  "terraform-vmresource-apply-ha",
+  "terraform-destroy-ha"
 )
 
 foreach ($environment in $environments) {
@@ -182,7 +182,7 @@ Get-ChildItem $ficDir -Filter *.json | Select-Object Name, Length
 Before creating any credentials, open one generated file to verify the complete values and shape:
 
 ```powershell
-Get-Content (Join-Path $ficDir "terraform-vmresource-plan.json")
+Get-Content (Join-Path $ficDir "terraform-vmresource-plan-ha.json")
 ```
 
 It should contain the five JSON properties `name`, `issuer`, `subject`, `description`, and `audiences`. Its subject must end with `:environment:terraform-vmresource-plan`; the other files must end with their respective environment names.
@@ -289,11 +289,11 @@ For all five identities, this PowerShell loop assigns the state role at the Stor
 
 ```powershell
 $spObjectIds = @{
-  "terraform-identity-plan"    = "<IDENTITY_PLAN_SP_OBJECT_ID>"
-  "terraform-identity-apply"   = "<IDENTITY_APPLY_SP_OBJECT_ID>"
-  "terraform-vmresource-plan"  = "<VMRESOURCE_PLAN_SP_OBJECT_ID>"
-  "terraform-vmresource-apply" = "<VMRESOURCE_APPLY_SP_OBJECT_ID>"
-  "terraform-destroy"          = "<DESTROY_SP_OBJECT_ID>"
+  "terraform-identity-plan-ha"    = "<IDENTITY_PLAN_SP_OBJECT_ID>"
+  "terraform-identity-apply-ha"   = "<IDENTITY_APPLY_SP_OBJECT_ID>"
+  "terraform-vmresource-plan-ha"  = "<VMRESOURCE_PLAN_SP_OBJECT_ID>"
+  "terraform-vmresource-apply-ha" = "<VMRESOURCE_APPLY_SP_OBJECT_ID>"
+  "terraform-destroy-ha"          = "<DESTROY_SP_OBJECT_ID>"
 }
 
 foreach ($environment in $spObjectIds.Keys) {
@@ -322,11 +322,11 @@ Suggested management-plane permissions:
 
 | GitHub environment | Azure resource scope and role | Purpose |
 |---|---|---|
-| `terraform-identity-plan` | `Reader` at subscription scope | Initial plan may inspect whether the lab resource group and identity exist. |
-| `terraform-identity-apply` | `Contributor` plus `User Access Administrator` (or suitably conditioned `Role Based Access Control Administrator`) at subscription scope for first bootstrap | Creates the resource group, managed identity, and `Reader` role assignment for `id-cm`. Contributor alone cannot create role assignments; the target group does not exist yet. |
-| `terraform-vmresource-plan` | `Reader` on the lab resource group | Reads the resource group and identity and creates plans. |
-| `terraform-vmresource-apply` | `Contributor` on the lab resource group | Creates networking, NSGs, NICs, and VMs. |
-| `terraform-destroy` | `Contributor` on the lab resource group | Deletes resources managed by module 02 only. |
+| `terraform-identity-plan-ha` | `Reader` at subscription scope | Initial plan may inspect whether the lab resource group and identity exist. |
+| `terraform-identity-apply-ha` | `Contributor` plus `User Access Administrator` (or suitably conditioned `Role Based Access Control Administrator`) at subscription scope for first bootstrap | Creates the resource group, managed identity, and `Reader` role assignment for `id-cm-ha`. Contributor alone cannot create role assignments; the target group does not exist yet. |
+| `terraform-vmresource-plan-ha` | `Reader` on the lab resource group | Reads the resource group and identity and creates plans. |
+| `terraform-vmresource-apply-ha` | `Contributor` on the lab resource group | Creates networking, NSGs, NICs, and VMs. |
+| `terraform-destroy-ha` | `Contributor` on the lab resource group | Deletes resources managed by module 02 only. |
 
 Use a dedicated lab subscription for initial identity bootstrap. After successful setup, remove or reduce subscription-scoped bootstrap privileges if they are no longer needed. Production designs should use narrower custom roles/scopes and separate identity and workload resource groups. Do not grant subscription-wide Owner for convenience.
 
@@ -340,22 +340,22 @@ az role assignment create `
   --scope $labRgScope
 ```
 
-For each assignment below, use the SP Object ID from the matching environment row above. These commands implement the preceding role table; first bootstrap uses subscription-scoped roles because `terraform/01-identity` creates the lab Resource Group and then assigns `Reader` to `id-cm`:
+For each assignment below, use the SP Object ID from the matching environment row above. These commands implement the preceding role table; first bootstrap uses subscription-scoped roles because `terraform/01-identity` creates the lab Resource Group and then assigns `Reader` to `id-cm-ha`:
 
 ```powershell
 $subscriptionScope = "/subscriptions/$(az account show --query id -o tsv)"
 
 # Identity plan: subscription Reader, because the Resource Group may not exist yet.
-az role assignment create --assignee-object-id $spObjectIds["terraform-identity-plan"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $subscriptionScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-plan-ha"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $subscriptionScope
 
 # Identity apply: temporary bootstrap permissions. Contributor does not grant roleAssignments/write.
-az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $subscriptionScope
-az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply"] --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scope $subscriptionScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply-ha"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $subscriptionScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-identity-apply-ha"] --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scope $subscriptionScope
 ```
 
 The identity-apply `User Access Administrator` grant at subscription scope is powerful and is required by this initial bootstrap design. Use a dedicated lab subscription; once the identity foundation has been created, **remove or narrow that grant only after verifying no planned identity operation needs it**. 
 
-The `terraform-destroy` app is for module 02 only; it does not remove the module 01 Resource Group or identity. For a fresh setup, apply the three bootstrap role assignments (identity-plan Reader plus identity-apply Contributor and User Access Administrator) before the first identity apply. 
+The `terraform-destroy-ha` app is for module 02 only; it does not remove the module 01 Resource Group or identity. For a fresh setup, apply the three bootstrap role assignments (identity-plan Reader plus identity-apply Contributor and User Access Administrator) before the first identity apply. 
 
 Now that the lab Resource Group has been created, obtain its scope and grant the three workload roles:
 
@@ -363,9 +363,9 @@ Now that the lab Resource Group has been created, obtain its scope and grant the
 $labRgScope = az group show --name "<LAB_RESOURCE_GROUP>" --query id -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $labRgScope) { throw "Lab Resource Group not found; do not continue." }
 
-az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-plan"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $labRgScope
-az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-apply"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
-az role assignment create --assignee-object-id $spObjectIds["terraform-destroy"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-plan-ha"] --assignee-principal-type ServicePrincipal --role "Reader" --scope $labRgScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-vmresource-apply-ha"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
+az role assignment create --assignee-object-id $spObjectIds["terraform-destroy-ha"] --assignee-principal-type ServicePrincipal --role "Contributor" --scope $labRgScope
 ```
 
 If the Resource Group already exists, run all appropriate assignments and verify scopes before starting CI.
@@ -374,7 +374,7 @@ To verify management-plane assignments, query each SP at its target scope and co
 
 ```powershell
 az role assignment list `
-  --assignee-object-id $spObjectIds["terraform-vmresource-apply"] `
+  --assignee-object-id $spObjectIds["terraform-vmresource-apply-ha"] `
   --scope $labRgScope `
   --query "[].{role:roleDefinitionName,scope:scope,principal:principalId}" `
   --output table

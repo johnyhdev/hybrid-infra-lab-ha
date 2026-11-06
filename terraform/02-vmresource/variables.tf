@@ -1,31 +1,31 @@
 variable "resource_group_name" {
   description = "Persistent lab resource group"
   type        = string
-  default     = "rg-hybrid-infra-lab"
+  default     = "rg-hybrid-infra-lab-ha"
 }
 
 variable "managed_identity_name" {
   description = "Control Manager managed identity"
   type        = string
-  default     = "id-cm"
+  default     = "id-cm-ha"
 }
 
 variable "vnet_name" {
   description = "Main virtual network"
   type        = string
-  default     = "vnet-hybrid-infra"
+  default     = "vnet-hybrid-infra-ha"
 }
 
 variable "automation_subnet_name" {
   description = "Control Manager subnet"
   type        = string
-  default     = "snet-automation"
+  default     = "snet-automation-ha"
 }
 
 variable "workload_subnet_name" {
   description = "Workload subnet"
   type        = string
-  default     = "snet-workload"
+  default     = "snet-workload-ha"
 }
 
 variable "admin_username" {

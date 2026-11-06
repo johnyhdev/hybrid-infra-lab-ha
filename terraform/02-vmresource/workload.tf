@@ -17,7 +17,7 @@ resource "terraform_data" "workload_cloud_init" {
   for_each = var.workload_vms
 
   input = base64encode(
-    templatefile("${path.module}/../../bootstrap/workload-cloud-init.yaml", {
+    templatefile("${path.module}/../../bootstrap/workload-cloud-init-ha.yaml", {
       hostname            = each.key
       internal_public_key = tls_private_key.internal_lab_key.public_key_openssh
     })

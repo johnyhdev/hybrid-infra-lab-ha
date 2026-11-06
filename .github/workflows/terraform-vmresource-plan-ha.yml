@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   terraform-vmresource-plan:
-    name: Terraform VM Resource Plan
+    name: Terraform VM Resource Plan HA
     runs-on: ubuntu-24.04
-    environment: terraform-vmresource-plan
+    environment: terraform-vmresource-plan-ha
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
 
     permissions:
@@ -143,24 +143,24 @@ jobs:
 
       - name: Terraform Plan
         if: steps.changes.outputs.src == 'true'
-        run: terraform plan -no-color -out=tfplan
+        run: terraform plan -no-color -out=vmresource-ha-tfplan
 
       - name: Show Terraform Plan
         if: steps.changes.outputs.src == 'true'
-        run: terraform show -no-color tfplan > tfplan.txt
+        run: terraform show -no-color vmresource-ha-tfplan > vmresource-ha-tfplan.txt
 
       - name: Publish Terraform Plan Summary
         if: steps.changes.outputs.src == 'true'
         run: |
-          echo "## Terraform VM Resource Plan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Terraform VM Resource Plan HA Summary" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat tfplan.txt >> "$GITHUB_STEP_SUMMARY"
+          cat vmresource-ha-tfplan.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create Plan Metadata
         if: steps.changes.outputs.src == 'true'
         run: |
-          cat > plan-metadata.txt <<EOF
+          cat > vmresource-ha-plan-metadata.txt <<EOF
           Repository: $GITHUB_REPOSITORY
           Root Module: terraform/02-vmresource
           Commit SHA: ${{ github.event.pull_request.head.sha }}
@@ -168,21 +168,21 @@ jobs:
           PR Head SHA: ${{ github.event.pull_request.head.sha }}
           Workflow Run ID: ${{ github.run_id }}
           Workflow Run Attempt: ${{ github.run_attempt }}
-          Plan Artifact: terraform-vmresource-plan-${{ github.event.pull_request.head.sha }}
+          Plan Artifact: terraform-vmresource-plan-ha-${{ github.event.pull_request.head.sha }}
           EOF
 
       - name: Upload Terraform Plan Artifact
         if: steps.changes.outputs.src == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-vmresource-plan-${{ github.event.pull_request.head.sha }}
+          name: terraform-vmresource-plan-ha-${{ github.event.pull_request.head.sha }}
           path: |
-            terraform/02-vmresource/tfplan
-            terraform/02-vmresource/tfplan.txt
-            terraform/02-vmresource/plan-metadata.txt
+            terraform/02-vmresource/vmresource-ha-tfplan
+            terraform/02-vmresource/vmresource-ha-tfplan.txt
+            terraform/02-vmresource/vmresource-ha-plan-metadata.txt
           retention-days: 7
 
       # 3. Report a successful skip when no VM resource files changed.
       - name: Skip Execution Notification
         if: steps.changes.outputs.src == 'false'
-        run: echo "No VM Resource files changed in this PR. Plan skipped safely."
+        run: echo "No VM Resource HA files changed in this PR. Plan skipped safely."

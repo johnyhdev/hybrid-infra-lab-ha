@@ -3,13 +3,18 @@
 *.tfstate
 *.tfstate.*
 *.tfplan
+*-tfplan*
 tfplan
 tfplan.*
 *-tfplan.txt
+destroy-ha-plan.txt
 tfplan.txt
 destroy-plan.txt
 destroy-execution.out
 plan-metadata.txt
+plan-metadata-ha.txt
+*-plan-metadata*.txt
+*-plan-*metadata*.txt
 crash.log
 crash.*.log
 *.tfvars
@@ -30,6 +35,14 @@ id_rsa
 id_dsa
 id_ecdsa
 id_ed25519
+vm-cm-workload
+*.ppk
+# Local environment variants; keep safe examples trackable.
+.env.*
+!.env.example
+
+# Downloaded plan artifacts may contain sensitive infrastructure details.
+/approved-plan/
 
 # IDE
 .vscode/
