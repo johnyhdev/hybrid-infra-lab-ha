@@ -107,7 +107,7 @@ jobs:
             echo "Workflow Run ID: $RUN_ID"
             echo "Workflow Run Attempt: $RUN_ATTEMPT"
             echo "Plan Artifact: $ARTIFACT_NAME"
-          } > destroy-plan-ha-metadata.txt
+          } > destroy-ha-plan-metadata.txt
           echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Publish destroy plan summary
@@ -118,7 +118,7 @@ jobs:
             echo "Review the complete plan and target subscription before approving the protected terraform-destroy-ha Environment. The apply job uses this exact saved plan."
             echo
             echo '```text'
-            cat destroy-plan-ha.txt
+            cat destroy-ha-plan.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -129,7 +129,7 @@ jobs:
           path: |
             terraform/02-vmresource/destroy-ha.tfplan
             terraform/02-vmresource/destroy-ha-plan.txt
-            terraform/02-vmresource/destroy-plan-ha-metadata.txt
+            terraform/02-vmresource/destroy-ha-plan-metadata.txt
           retention-days: 1
 
   apply:
@@ -188,13 +188,13 @@ jobs:
           EXPECTED_ARTIFACT: ${{ needs.plan.outputs.artifact_name }}
         run: |
           test -f destroy-ha.tfplan
-          test -f destroy-plan-ha.txt
-          test -f destroy-plan-ha-metadata.txt
-          grep -Fx "Repository: $GITHUB_REPOSITORY" destroy-plan-ha-metadata.txt
-          grep -Fx "Root Module: terraform/02-vmresource" destroy-plan-ha-metadata.txt
-          grep -Fx "Commit SHA: $GITHUB_SHA" destroy-plan-ha-metadata.txt
-          grep -Fx "Workflow Run ID: $EXPECTED_RUN_ID" destroy-plan-ha-metadata.txt
-          grep -Fx "Plan Artifact: $EXPECTED_ARTIFACT" destroy-plan-ha-metadata.txt
+          test -f destroy-ha-plan.txt
+          test -f destroy-ha-plan-metadata.txt
+          grep -Fx "Repository: $GITHUB_REPOSITORY" destroy-ha-plan-metadata.txt
+          grep -Fx "Root Module: terraform/02-vmresource" destroy-ha-plan-metadata.txt
+          grep -Fx "Commit SHA: $GITHUB_SHA" destroy-ha-plan-metadata.txt
+          grep -Fx "Workflow Run ID: $EXPECTED_RUN_ID" destroy-ha-plan-metadata.txt
+          grep -Fx "Plan Artifact: $EXPECTED_ARTIFACT" destroy-ha-plan-metadata.txt
 
       - name: Apply exact reviewed destroy plan
         run: terraform apply -auto-approve -no-color destroy-ha.tfplan
