@@ -1,9 +1,10 @@
 resource "azurerm_network_interface" "workload" {
   for_each = var.workload_vms
 
-  name                = "nic-${each.key}"
-  location            = data.azurerm_resource_group.main.location
-  resource_group_name = data.azurerm_resource_group.main.name
+  name                           = "nic-${each.key}"
+  location                       = data.azurerm_resource_group.main.location
+  resource_group_name            = data.azurerm_resource_group.main.name
+  accelerated_networking_enabled = true
 
   ip_configuration {
     name                          = "internal"

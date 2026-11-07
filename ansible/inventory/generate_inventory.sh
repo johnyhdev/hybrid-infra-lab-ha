@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-RESOURCE_GROUP="rg-hybrid-infra-lab"
+RESOURCE_GROUP="rg-hybrid-infra-lab-ha"
 OUTPUT="inventory/generated/azure.yml"
 
 mkdir -p "$(dirname "$OUTPUT")"
