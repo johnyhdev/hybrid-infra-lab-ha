@@ -133,7 +133,7 @@ jobs:
       - name: Trigger Remote Ansible Execution on CM Node
         run: |
           TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
-          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab-ha && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
+          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab-ha && git checkout ansible/inventory/generate_inventory.sh && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
 
       - name: Comment Ansible Deploy HA Success on PR
         if: success() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'
