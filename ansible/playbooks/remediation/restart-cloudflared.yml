@@ -1,0 +1,30 @@
+---
+- name: Recover only unhealthy Cloudflare Tunnel connectors
+  hosts: workload
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Probe local Cloudflare connector metrics
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ cloudflared_metrics_port }}/metrics"
+        status_code: 200
+      register: connector_probe
+      failed_when: false
+      changed_when: false
+
+    - name: Restart cloudflared only when the local probe fails
+      ansible.builtin.systemd:
+        name: cloudflared
+        state: restarted
+      when: connector_probe.status | default(0) != 200
+
+    - name: Verify connector recovery
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ cloudflared_metrics_port }}/metrics"
+        status_code: 200
+      retries: 5
+      delay: 3
+      register: connector_recovery
+      until: connector_recovery.status == 200
+      changed_when: false

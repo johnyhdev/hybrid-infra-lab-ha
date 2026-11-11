@@ -1,0 +1,28 @@
+---
+- name: Recover the single designated PostgreSQL service only if unavailable
+  hosts: database
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Check PostgreSQL readiness
+      ansible.builtin.command:
+        argv: [pg_isready]
+      register: postgres_probe
+      failed_when: false
+      changed_when: false
+
+    - name: Restart PostgreSQL only when readiness fails
+      ansible.builtin.systemd:
+        name: postgresql
+        state: restarted
+      when: postgres_probe.rc != 0
+
+    - name: Verify PostgreSQL recovery
+      ansible.builtin.command:
+        argv: [pg_isready]
+      register: postgres_recovery
+      retries: 10
+      delay: 3
+      until: postgres_recovery.rc == 0
+      changed_when: false

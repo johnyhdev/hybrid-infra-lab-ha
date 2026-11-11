@@ -6,22 +6,49 @@
     shell: /usr/sbin/nologin
     create_home: false
 
-# Select the correct architecture (amd64 or arm64) based on the VM facts
+- name: Create Node Exporter configuration directory
+  ansible.builtin.file:
+    path: /etc/node_exporter
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create textfile collector directory
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile
+    state: directory
+    owner: node_exporter
+    group: node_exporter
+    mode: "0750"
+
+- name: Validate Node Exporter architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in ['x86_64', 'aarch64', 'arm64']
+    fail_msg: Node Exporter release pin supports only amd64 and arm64 hosts.
+
+- name: Set Node Exporter release architecture
+  ansible.builtin.set_fact:
+    node_exporter_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+
 - name: Download node exporter
   ansible.builtin.get_url:
-    url: "https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-{{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else 'arm64' }}.tar.gz"
-    dest: /tmp/node_exporter.tar.gz
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}-{{ node_exporter_arch }}.tar.gz"
+    checksum: "sha256:{{ node_exporter_sha256[node_exporter_arch] }}"
     mode: "0644"
 
 - name: Extract node exporter
   ansible.builtin.unarchive:
-    src: /tmp/node_exporter.tar.gz
-    dest: /tmp
+    src: "/tmp/node_exporter-{{ node_exporter_version }}-{{ node_exporter_arch }}.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}-{{ node_exporter_arch }}"
     remote_src: true
+    creates: "/tmp/node_exporter-{{ node_exporter_version }}-{{ node_exporter_arch }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
 
 - name: Install node exporter binary
   ansible.builtin.copy:
-    src: "/tmp/node_exporter-1.9.1.linux-{{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else 'arm64' }}/node_exporter"
+    src: "/tmp/node_exporter-{{ node_exporter_version }}-{{ node_exporter_arch }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
     dest: /usr/local/bin/node_exporter
     owner: root
     group: root
@@ -44,8 +71,11 @@
       User=node_exporter
       Group=node_exporter
       ExecStart=/usr/local/bin/node_exporter \
-        --web.listen-address=":9100" \
+        --web.listen-address="{{ azure_private_ip }}:{{ monitoring_node_exporter_port }}" \
+        --web.config.file=/etc/node_exporter/web.yml \
+        --collector.textfile.directory=/var/lib/node_exporter/textfile \
         --collector.disable-defaults \
+        --collector.textfile \
         --collector.cpu \
         --collector.meminfo \
         --collector.diskstats \
@@ -60,6 +90,19 @@
 
       [Install]
       WantedBy=multi-user.target
+  notify: Restart node exporter
+
+- name: Create Node Exporter web configuration
+  ansible.builtin.copy:
+    dest: /etc/node_exporter/web.yml
+    owner: root
+    group: node_exporter
+    mode: "0640"
+    content: |
+      tls_server_config:
+        cert_file: /etc/phase8/tls/tls.crt
+        key_file: /etc/phase8/tls/tls.key
+        min_version: TLS12
   notify: Restart node exporter
 
 - name: Reload systemd

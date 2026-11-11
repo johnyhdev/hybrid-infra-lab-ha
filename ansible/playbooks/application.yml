@@ -6,7 +6,19 @@
 
   roles:
     - linux_baseline
-    - postgresql
     - sample_app
+    - tailscale_tls
     - nginx
+    - loki_proxy
     - node_exporter
+    - cloudflared
+    - log_collector
+    - workload_resilience
+
+- name: Configure the designated single-instance PostgreSQL host
+  hosts: database
+  become: true
+
+  roles:
+    - linux_baseline
+    - postgresql

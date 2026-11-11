@@ -1,0 +1,243 @@
+---
+- name: Validate Cloudflare Tunnel Pool capacities and workload membership
+  ansible.builtin.assert:
+    that:
+      - cloudflare_tunnel_pools | length > 0
+      - >-
+        (cloudflare_tunnel_pools | map(attribute='pool_name') | list | unique | length)
+        == (cloudflare_tunnel_pools | length)
+      - >-
+        (cloudflare_tunnel_pools | map(attribute='tunnel_id') | list | unique | length)
+        == (cloudflare_tunnel_pools | length)
+      - >-
+        (cloudflare_tunnel_pools | map(attribute='members') | flatten | length)
+        ==
+        (cloudflare_tunnel_pools | map(attribute='members') | flatten | unique | length)
+      - >-
+        (cloudflare_tunnel_pools | map(attribute='members') | flatten | sort)
+        == (groups['workload'] | sort)
+      - item.max_replicas | int <= 25
+      - item.desired_replicas | int >= 1
+      - item.desired_replicas | int <= item.max_replicas | int
+      - item.members | length == item.desired_replicas | int
+      - item.tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+    fail_msg: >-
+      Tunnel Pools must partition all workload nodes exactly once, match each
+      desired replica count, and remain within the verified 25-connector limit.
+  loop: "{{ cloudflare_tunnel_pools }}"
+  run_once: true
+
+- name: Validate Cloudflare pool assignment for each workload
+  ansible.builtin.set_fact:
+    cloudflare_pool_matches: >-
+      {{ cloudflare_tunnel_pools
+         | selectattr('members', 'contains', inventory_hostname)
+         | list }}
+
+- name: Require exactly one Tunnel Pool per workload
+  ansible.builtin.assert:
+    that:
+      - cloudflare_pool_matches | length == 1
+      - cloudflare_pool_matches[0].tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+      - cloudflare_pool_matches[0].max_replicas | int <= 25
+      - cloudflare_pool_matches[0].members | length <= cloudflare_pool_matches[0].max_replicas | int
+      - cloudflare_key_vault_uri is match('^https://[A-Za-z0-9-]+[.]vault[.]azure[.]net$')
+      - cloudflare_account_id is match('^[0-9a-fA-F]{32}$')
+      - "'REPLACE_' not in cloudflare_api_token_secret_name"
+      - "'REPLACE_' not in workload_managed_identity_client_id"
+    fail_msg: >-
+      Set a valid Tunnel Pool, account, and Key Vault configuration in
+      group_vars/workload/cloudflare.yml; each workload must belong to exactly one
+      pool and pool capacity must not exceed the verified cap.
+
+- name: Require a pinned cloudflared package version
+  ansible.builtin.assert:
+    that:
+      - cloudflared_package_version is defined
+      - "'REPLACE_' not in cloudflared_package_version"
+      - "'*' not in cloudflared_package_version"
+    fail_msg: Select an exact cloudflared package version from the approved APT repository.
+
+- name: Install Cloudflare package signing key
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Cloudflare APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main"
+    filename: cloudflared
+    state: present
+
+- name: Install pinned cloudflared package
+  ansible.builtin.apt:
+    name: "cloudflared={{ cloudflared_package_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create cloudflared service account
+  ansible.builtin.user:
+    name: cloudflared
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/cloudflared
+    create_home: false
+    state: present
+
+- name: Create cloudflared config directory
+  ansible.builtin.file:
+    path: /etc/cloudflared
+    state: directory
+    owner: root
+    group: cloudflared
+    mode: "0750"
+
+- name: Create cloudflared helper directory
+  ansible.builtin.file:
+    path: /usr/local/lib/cloudflared
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create protected runtime token directory
+  ansible.builtin.file:
+    path: /run/cloudflared
+    state: directory
+    owner: root
+    group: cloudflared
+    mode: "0750"
+
+- name: Install cloudflared runtime directory tmpfiles rule
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/phase8-cloudflared.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: "d /run/cloudflared 0750 root cloudflared -\n"
+
+- name: Ensure cloudflared runtime directory exists for this boot
+  ansible.builtin.command:
+    argv: [systemd-tmpfiles, --create, /etc/tmpfiles.d/phase8-cloudflared.conf]
+  changed_when: false
+
+- name: Install non-secret runtime credential configuration
+  ansible.builtin.template:
+    src: runtime.json.j2
+    dest: /etc/cloudflared/runtime.json
+    owner: root
+    group: cloudflared
+    mode: "0640"
+  notify: Restart cloudflared
+
+- name: Install Tunnel Token refresh helper
+  ansible.builtin.copy:
+    src: refresh_tunnel_token.py
+    dest: /usr/local/lib/cloudflared/refresh_tunnel_token.py
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart cloudflared
+
+- name: Install cloudflared service unit
+  ansible.builtin.template:
+    src: cloudflared.service.j2
+    dest: /etc/systemd/system/cloudflared.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd manager
+    - Restart cloudflared
+
+- name: Install Tunnel Token refresh service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: cloudflared-refresh.service.j2
+      dest: /etc/systemd/system/cloudflared-refresh.service
+    - src: cloudflared-refresh.timer.j2
+      dest: /etc/systemd/system/cloudflared-refresh.timer
+  notify: Reload systemd manager
+
+- name: Install workload health probe script
+  ansible.builtin.template:
+    src: workload-health-probe.sh.j2
+    dest: /usr/local/sbin/phase8-workload-health-probe
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install workload health probe service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: health-probe.service.j2
+      dest: /etc/systemd/system/phase8-workload-health-probe.service
+    - src: health-probe.timer.j2
+      dest: /etc/systemd/system/phase8-workload-health-probe.timer
+  notify: Reload systemd manager
+
+- name: Create Cloudflared refresh timer drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/cloudflared-refresh.timer.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install systemd dependency on periodic Tunnel Token refresh
+  ansible.builtin.template:
+    src: cloudflared-refresh-dependency.conf.j2
+    dest: /etc/systemd/system/cloudflared-refresh.timer.d/phase8-network.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd manager
+
+- name: Apply Cloudflared systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable Cloudflare Tunnel connector
+  ansible.builtin.systemd:
+    name: cloudflared
+    enabled: true
+    state: started
+
+- name: Enable periodic Tunnel Token refresh
+  ansible.builtin.systemd:
+    name: cloudflared-refresh.timer
+    enabled: true
+    state: started
+
+- name: Enable periodic workload health probes
+  ansible.builtin.systemd:
+    name: phase8-workload-health-probe.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply changed connector configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify connector service is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - cloudflared
+  register: cloudflared_service_state
+  changed_when: false
+  failed_when: cloudflared_service_state.stdout != 'active'

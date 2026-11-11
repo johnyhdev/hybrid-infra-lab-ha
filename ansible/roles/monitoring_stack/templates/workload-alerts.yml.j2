@@ -1,0 +1,127 @@
+{% raw %}
+groups:
+  - name: infrastructure-availability
+    interval: 15s
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node metrics unavailable on {{ $labels.instance }}"
+          description: "Prometheus cannot scrape the private TLS Node Exporter endpoint."
+
+      - alert: ExpectedNodeExporterMissing
+        {% endraw %}
+        expr: count(up{job="node_exporter"} == 1) < {{ (groups['control'] | length) + (groups['workload'] | length) }}
+        {% raw %}
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "One or more expected nodes are missing from monitoring"
+
+      - alert: CloudflaredUnavailable
+        expr: phase8_cloudflared_active{job="node_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cloudflare Tunnel connector unavailable on {{ $labels.instance }}"
+          description: "The workload connector systemd/metrics health probe failed."
+
+  - name: workload-capacity
+    interval: 15s
+    rules:
+      - alert: WorkloadCPUHigh
+        expr: 100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job="node_exporter",mode="idle"}[5m]))) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU high on {{ $labels.instance }}"
+          description: "CPU has stayed above 85%; current value {{ $value | printf \"%.1f\" }}%."
+
+      - alert: WorkloadMemoryLow
+        expr: 100 * node_memory_MemAvailable_bytes{job="node_exporter"} / node_memory_MemTotal_bytes{job="node_exporter"} < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Available memory low on {{ $labels.instance }}"
+          description: "Available memory has stayed below 10%."
+
+      - alert: WorkloadFilesystemAlmostFull
+        expr: 100 * (1 - node_filesystem_avail_bytes{job="node_exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node_exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) >= 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} nearly full on {{ $labels.instance }}"
+
+      - alert: WorkloadFilesystemReadOnly
+        expr: node_filesystem_readonly{job="node_exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is read-only on {{ $labels.instance }}"
+
+      - alert: NginxUnavailable
+        expr: phase8_nginx_proxy_active{job="node_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nginx proxy or local web service unavailable on {{ $labels.instance }}"
+
+      - alert: NginxHTTPProbeFailure
+        expr: phase8_http_probe_status{job="node_exporter"} != 200
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTPS application health check failed for {{ $labels.backend }}"
+
+      - alert: NginxHTTPHighLatency
+        expr: phase8_http_probe_duration_seconds{job="node_exporter"} > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTPS application health check latency is high for {{ $labels.backend }}"
+
+      - alert: WorkloadNetworkErrors
+        expr: sum by(instance) (rate(node_network_receive_errs_total{job="node_exporter",device!~"lo"}[5m]) + rate(node_network_transmit_errs_total{job="node_exporter",device!~"lo"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Network errors detected on {{ $labels.instance }}"
+
+      - alert: WorkloadBackendUnhealthy
+        expr: phase8_backend_healthy{job="node_exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend {{ $labels.backend }} is unhealthy from {{ $labels.instance }}"
+
+      - alert: PostgreSQLUnavailable
+        expr: phase8_postgresql_ready{job="node_exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL readiness check failed on {{ $labels.instance }}"
+
+      - alert: WorkloadCPUTestCritical
+        expr: phase8_cpu_test_active{job="node_exporter"} == 1 and 100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job="node_exporter",mode="idle"}[2m]))) > 20
+        for: 1m
+        labels:
+          severity: critical
+          component: phase8-cpu-test
+        annotations:
+          summary: "Bounded CPU test exceeded the critical threshold on {{ $labels.instance }}"
+{% endraw %}

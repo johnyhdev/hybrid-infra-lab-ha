@@ -3,8 +3,8 @@
 - name: Install PostgreSQL
   ansible.builtin.apt:
     name:
-      - postgresql
-      - postgresql-contrib
+      - "postgresql-{{ postgresql_major }}={{ package_versions.postgresql }}"
+      - "postgresql-contrib-{{ postgresql_major }}={{ package_versions.postgresql }}"
       - python3-psycopg2
     state: present
     update_cache: true
@@ -14,3 +14,56 @@
     name: postgresql
     enabled: true
     state: started
+
+- name: Allow PostgreSQL only from the workload subnet
+  community.general.ufw:
+    rule: allow
+    port: '5432'
+    proto: tcp
+    src: "{{ workload_plane_subnet_cidr }}"
+
+- name: Add PostgreSQL to the TLS certificate reader group
+  ansible.builtin.user:
+    name: postgres
+    groups: phase8-tls
+    append: true
+    state: present
+
+- name: Configure PostgreSQL private TLS listener
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgresql_major }}/main/postgresql.conf"
+    regexp: "^#?{{ item.key }}\\s*="
+    line: "{{ item.key }} = {{ item.value }}"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  loop:
+    - key: listen_addresses
+      value: "'{{ azure_private_ip }}'"
+    - key: ssl
+      value: "on"
+    - key: ssl_cert_file
+      value: "'/etc/phase8/tls/tls.crt'"
+    - key: ssl_key_file
+      value: "'/etc/phase8/tls/tls.key'"
+    - key: password_encryption
+      value: "'scram-sha-256'"
+  notify: Restart PostgreSQL
+
+- name: Allow TLS PostgreSQL connections only from workload subnet
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgresql_major }}/main/pg_hba.conf"
+    line: "hostssl all all {{ workload_plane_subnet_cidr }} scram-sha-256"
+    insertafter: EOF
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Restart PostgreSQL
+
+- name: Apply PostgreSQL TLS configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify PostgreSQL readiness
+  ansible.builtin.command:
+    argv: [pg_isready]
+  changed_when: false

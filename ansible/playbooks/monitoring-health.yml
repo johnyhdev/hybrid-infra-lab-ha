@@ -1,0 +1,46 @@
+---
+- name: Verify monitoring health on every control manager
+  hosts: control
+  become: true
+  tasks:
+    - name: Check Prometheus readiness on tailnet interface
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ monitoring_prometheus_port }}/-/ready"
+        status_code: 200
+      changed_when: false
+
+    - name: Check Alertmanager readiness on tailnet interface
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ monitoring_alertmanager_port }}/-/ready"
+        status_code: 200
+      changed_when: false
+
+    - name: Check Grafana health on tailnet interface
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ monitoring_grafana_port }}/api/health"
+        status_code: 200
+      changed_when: false
+
+    - name: Check private TLS Loki readiness
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ tailscale_dns_name }}:{{ monitoring_loki_port }}:{{ azure_private_ip }}"
+          - "https://{{ tailscale_dns_name }}:{{ monitoring_loki_port }}/ready"
+      changed_when: false
+
+    - name: Check local Loki failover gateway
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ monitoring_loki_proxy_port }}/ready"
+        status_code: 200
+      changed_when: false
+
+    - name: Check local dispatcher health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ monitoring_dispatcher_port }}/healthz"
+        status_code: 200
+      changed_when: false

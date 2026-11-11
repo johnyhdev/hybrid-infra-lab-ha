@@ -1,0 +1,30 @@
+logging {
+  level = "info"
+  format = "logfmt"
+}
+
+loki.write "phase8" {
+  endpoint {
+    url = "http://127.0.0.1:{{ monitoring_loki_proxy_port }}/loki/api/v1/push"
+    name = "phase8-loki-primary"
+    min_backoff_period = "1s"
+    max_backoff_period = "30s"
+    max_backoff_retries = 0
+  }
+}
+
+loki.source.file "system_logs" {
+  targets = [
+    {"__path__" = "/var/log/syslog", "job" = "syslog", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/auth.log", "job" = "auth", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/cloud-init-output.log", "job" = "cloud-init", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/nginx/*.log", "job" = "nginx", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/ansible/site.log", "job" = "ansible", "host" = "{{ inventory_hostname }}"}
+  ]
+  forward_to = [loki.write.phase8.receiver]
+  tail_from_end = true
+  file_match {
+    enabled = true
+    sync_period = "15s"
+  }
+}

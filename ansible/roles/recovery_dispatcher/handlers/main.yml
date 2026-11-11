@@ -1,0 +1,10 @@
+---
+- name: Reload systemd manager
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart recovery dispatcher
+  ansible.builtin.systemd:
+    name: phase8-recovery-dispatcher
+    state: restarted
+    daemon_reload: true

@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically refresh the Cloudflare Tunnel Token
+
+[Timer]
+OnBootSec=12h
+OnUnitActiveSec=12h
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,57 @@
+---
+- name: Ensure Azure data disk is attached when requested
+  ansible.builtin.stat:
+    path: /dev/disk/azure/scsi1/lun0
+  register: phase8_data_disk
+  when: (data_disk_size_gb | default(0) | int) > 0
+
+- name: Require Azure data disk device when disk size is configured
+  ansible.builtin.assert:
+    that:
+      - phase8_data_disk.stat.exists
+    fail_msg: Terraform declares a data disk but Azure device /dev/disk/azure/scsi1/lun0 is not present.
+  when: (data_disk_size_gb | default(0) | int) > 0
+
+- name: Read current data disk filesystem signature
+  ansible.builtin.command:
+    argv: [blkid, -o, value, -s, TYPE, /dev/disk/azure/scsi1/lun0]
+  register: phase8_data_disk_type
+  changed_when: false
+  failed_when: false
+  when: (data_disk_size_gb | default(0) | int) > 0
+
+- name: Create ext4 filesystem only on an unformatted new data disk
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/disk/azure/scsi1/lun0
+    force: false
+  when:
+    - (data_disk_size_gb | default(0) | int) > 0
+    - phase8_data_disk_type.stdout | trim == ''
+
+- name: Refuse to reformat an existing non-ext4 data disk
+  ansible.builtin.assert:
+    that:
+      - phase8_data_disk_type.stdout | trim in ['', 'ext4']
+    fail_msg: >-
+      The data disk contains a non-ext4 filesystem. No automatic formatting was
+      performed; migrate or configure the filesystem explicitly.
+  when: (data_disk_size_gb | default(0) | int) > 0
+
+- name: Create data mount point
+  ansible.builtin.file:
+    path: /mnt/phase8-data
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: (data_disk_size_gb | default(0) | int) > 0
+
+- name: Mount Azure data disk persistently
+  ansible.builtin.mount:
+    path: /mnt/phase8-data
+    src: /dev/disk/azure/scsi1/lun0
+    fstype: ext4
+    opts: defaults,nofail
+    state: mounted
+  when: (data_disk_size_gb | default(0) | int) > 0

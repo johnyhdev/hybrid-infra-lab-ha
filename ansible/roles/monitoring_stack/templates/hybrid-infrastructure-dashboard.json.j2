@@ -1,0 +1,71 @@
+{
+  "id": null,
+  "uid": "phase8-overview",
+  "title": "Hybrid Infrastructure Phase 8",
+  "tags": ["phase8", "infrastructure"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Node availability",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "sum(up{job=\"node_exporter\"})", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "CPU busy percent",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job=\"node_exporter\",mode=\"idle\"}[5m])))", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Memory used percent",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node_exporter\"} / node_memory_MemTotal_bytes{job=\"node_exporter\"})", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Filesystem used percent",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node_exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{job=\"node_exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"})", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Network receive bytes/sec",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "sum by(instance) (rate(node_network_receive_bytes_total{job=\"node_exporter\",device!~\"lo\"}[5m]))", "refId": "A"}]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Workload backend health",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
+      "targets": [{"expr": "phase8_backend_healthy", "refId": "A"}]
+    },
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "Infrastructure logs",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "loki", "uid": "phase8-loki"},
+      "targets": [{"expr": "{job=~\"syslog|nginx|cloudflared|ansible|cloud-init\"}", "refId": "A"}]
+    }
+  ],
+  "annotations": {"list": []},
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"}
+}
