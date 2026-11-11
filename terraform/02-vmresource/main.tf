@@ -17,6 +17,12 @@ data "azurerm_key_vault" "workload_secrets" {
   resource_group_name = data.azurerm_resource_group.main.name
 }
 
+# 1. Truy vấn thông tin Key bên trong Key Vault hiện có
+data "azurerm_key_vault_key" "loki_encryption_key" {
+  name         = var.storage_encryption_key_name # Tên Key trong Key Vault (ví dụ: "loki-storage-key")
+  key_vault_id = data.azurerm_key_vault.workload_secrets.id
+}
+
 resource "azurerm_storage_account" "loki" {
   name                            = var.loki_storage_account_name
   resource_group_name             = data.azurerm_resource_group.main.name
@@ -30,10 +36,21 @@ resource "azurerm_storage_account" "loki" {
   shared_access_key_enabled       = false
   allow_nested_items_to_be_public = false
 
+  # 1. Bật System Assigned Identity cho Storage Account
+  identity {
+    type = "SystemAssigned"
+  }
+
   tags = {
     managed_by = "terraform"
     role       = "loki-storage"
   }
+}
+
+# 2. Liên kết Key Vault Key với Storage Account để mã hóa CMK (Sử dụng cú pháp chuẩn mới)
+resource "azurerm_storage_account_customer_managed_key" "loki_cmk" {
+  storage_account_id = azurerm_storage_account.loki.id
+  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id # Dùng ID đầy đủ của Key
 }
 
 resource "azurerm_storage_management_policy" "loki_cleanup" {
@@ -108,4 +125,38 @@ resource "terraform_data" "topology_guard" {
       error_message = "Exactly one workload VM must be designated as the single PostgreSQL host."
     }
   }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "loki_blob_logging" {
+  name               = "diag-loki-blob-service-critical"
+  target_resource_id = "${azurerm_storage_account.loki.id}/blobServices/default"
+  storage_account_id = azurerm_storage_account.loki.id
+
+  # Chỉ ghi nhận các sự kiện ghi/xóa dữ liệu quan trọng, lược bỏ Read request để tiết kiệm dung lượng
+  enabled_log {
+    category = "StorageWrite"
+  }
+
+  enabled_log {
+    category = "StorageDelete"
+  }
+
+  # Tắt hoàn toàn các metric không cần thiết để giảm thiểu chi phí transaction
+}
+
+# Cấp quyền cho Storage Account System-Assigned Identity được phép dùng Key trong Key Vault (do KV bật Azure RBAC)
+resource "azurerm_role_assignment" "storage_cmk_encryption" {
+  scope                = data.azurerm_key_vault.workload_secrets.id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_storage_account.loki.identity[0].principal_id
+}
+
+# Đảm bảo phân quyền RBAC được áp dụng xong trước khi gán Customer Managed Key vào Storage Account
+resource "azurerm_storage_account_customer_managed_key" "loki_cmk" {
+  storage_account_id = azurerm_storage_account.loki.id
+  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id
+
+  depends_on = [
+    azurerm_role_assignment.storage_cmk_encryption
+  ]
 }

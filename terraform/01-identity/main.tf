@@ -50,6 +50,7 @@ resource "azurerm_user_assigned_identity" "workload" {
 
 data "azurerm_client_config" "current" {}
 
+# checkov:skip=CKV2_AZURE_32: Private Endpoint is managed in the downstream network/vm layer to respect layer boundaries.
 resource "azurerm_key_vault" "workload_secrets" {
   name                          = var.key_vault_name
   location                      = azurerm_resource_group.main.location
@@ -76,4 +77,20 @@ resource "azurerm_role_assignment" "workload_keyvault_secret_reader" {
   scope                = azurerm_key_vault.workload_secrets.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.workload.principal_id
+}
+
+resource "azurerm_key_vault_key" "loki_encryption_key" {
+  name         = "loki-encryption-key"
+  key_vault_id = azurerm_key_vault.workload_secrets.id
+  key_type     = "RSA"
+  key_size     = 4096
+
+  key_opts = [
+    "decrypt",
+    "encrypt",
+    "sign",
+    "unwrapKey",
+    "verify",
+    "wrapKey",
+  ]
 }

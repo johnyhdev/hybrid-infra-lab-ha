@@ -70,7 +70,7 @@ resource "azurerm_linux_virtual_machine" "workload" {
 
   os_disk {
     caching              = "ReadWrite"
-    storage_account_type = "Standard_LRS"
+    storage_account_type = "StandardSSD_LRS" # Low cost Standard_LRS, good fit StandardSSD_LRS
     disk_size_gb         = each.value.os_disk_size_gb
   }
 

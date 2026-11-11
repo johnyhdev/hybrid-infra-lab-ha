@@ -47,3 +47,8 @@ output "key_vault_id" {
   description = "Key Vault resource ID"
   value       = azurerm_key_vault.workload_secrets.id
 }
+
+output "loki_encryption_key_id" {
+  description = "Resource ID of the Loki storage encryption key in Key Vault"
+  value       = azurerm_key_vault_key.loki_encryption_key.id
+}

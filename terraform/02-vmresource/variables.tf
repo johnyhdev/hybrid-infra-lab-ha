@@ -93,6 +93,11 @@ variable "ha_mode" {
   default     = true
 }
 
+variable "disk_encryption_set_id" {
+  description = "ID of the Disk Encryption Set to use for managed disks"
+  type        = string
+}
+
 variable "tailscale_cm_client_id" {
   description = "Tailscale WIF client ID for CM VMs"
   type        = string
@@ -215,6 +220,12 @@ variable "loki_storage_account_name" {
     condition     = can(regex("^[a-z0-9]{3,24}$", var.loki_storage_account_name))
     error_message = "loki_storage_account_name must be 3-24 lowercase letters and digits."
   }
+}
+
+variable "storage_encryption_key_name" {
+  description = "Name of the RSA key stored in the Azure Key Vault for storage encryption"
+  type        = string
+  default     = "loki-encryption-key"
 }
 
 variable "tailscale_package_version" {
