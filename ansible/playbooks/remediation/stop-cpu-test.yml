@@ -1,0 +1,19 @@
+---
+- name: Stop only the allowlisted CPU test systemd unit
+  hosts: workload
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Stop bounded Phase 8 CPU test
+      ansible.builtin.systemd:
+        name: phase8-cpu-test
+        state: stopped
+      failed_when: false
+
+    - name: Verify the CPU test unit is stopped
+      ansible.builtin.command:
+        argv: [systemctl, is-active, phase8-cpu-test]
+      register: cpu_test_state
+      changed_when: false
+      failed_when: cpu_test_state.rc == 0

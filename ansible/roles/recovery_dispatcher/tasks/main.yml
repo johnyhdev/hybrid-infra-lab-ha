@@ -1,0 +1,171 @@
+---
+- name: Create recovery dispatcher groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    system: true
+    state: present
+  loop:
+    - phase8-dispatcher
+    - recovery-dispatcher
+
+- name: Create unprivileged recovery dispatcher user
+  ansible.builtin.user:
+    name: phase8-dispatcher
+    group: phase8-dispatcher
+    groups: recovery-dispatcher
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/phase8-dispatcher
+    create_home: false
+    state: present
+
+- name: Add monitoring service accounts to ephemeral webhook token reader group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    groups: recovery-dispatcher
+    append: true
+    state: present
+  loop:
+    - prometheus
+    - alertmanager
+
+- name: Add Alertmanager to ephemeral-token reader group
+  ansible.builtin.user:
+    name: alertmanager
+    groups: recovery-dispatcher
+    append: true
+    state: present
+
+- name: Create dispatcher directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/phase8-dispatcher, owner: root, group: root, mode: "0755" }
+    - { path: /var/lib/phase8-dispatcher, owner: phase8-dispatcher, group: phase8-dispatcher, mode: "0750" }
+    - { path: /var/log/phase8-dispatcher, owner: phase8-dispatcher, group: phase8-dispatcher, mode: "0750" }
+
+- name: Install non-secret dispatcher configuration
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: /etc/phase8-dispatcher/config.json
+    owner: root
+    group: phase8-dispatcher
+    mode: "0640"
+  notify: Restart recovery dispatcher
+
+- name: Create recovery dispatcher code directory
+  ansible.builtin.file:
+    path: /usr/local/lib/phase8-dispatcher
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install recovery dispatcher source
+  ansible.builtin.copy:
+    src: dispatcher.py
+    dest: /usr/local/lib/phase8-dispatcher/dispatcher.py
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart recovery dispatcher
+
+- name: Install temporary webhook credential generator
+  ansible.builtin.copy:
+    src: create-alertmanager-token.sh
+    dest: /usr/local/sbin/phase8-create-alertmanager-token
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install root-owned no-argument recovery wrappers
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/phase8-{{ item }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - recovery-restart-nginx
+    - recovery-restart-cloudflared
+    - recovery-restart-node-exporter
+    - recovery-restart-postgresql
+    - recovery-stop-cpu-test
+
+- name: Install least-privilege dispatcher sudoers rules
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: /etc/sudoers.d/phase8-dispatcher
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+
+- name: Install ephemeral token systemd unit
+  ansible.builtin.template:
+    src: token.service.j2
+    dest: /etc/systemd/system/phase8-dispatcher-token.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install dispatcher systemd unit
+  ansible.builtin.template:
+    src: dispatcher.service.j2
+    dest: /etc/systemd/system/phase8-recovery-dispatcher.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart recovery dispatcher
+
+- name: Ensure runtime webhook token exists for this boot
+  ansible.builtin.systemd:
+    name: phase8-dispatcher-token.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Create Alertmanager systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/prometheus-alertmanager.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Alertmanager dependency on runtime token
+  ansible.builtin.template:
+    src: alertmanager-token.conf.j2
+    dest: /etc/systemd/system/prometheus-alertmanager.service.d/phase8-token.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd manager
+
+- name: Enable loopback-only dispatcher service
+  ansible.builtin.systemd:
+    name: phase8-recovery-dispatcher
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply dispatcher configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify dispatcher loopback endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ monitoring_dispatcher_port }}/healthz"
+    status_code: 200
+  changed_when: false
+  retries: 5
+  delay: 2
+  register: dispatcher_health
+  until: dispatcher_health.status == 200

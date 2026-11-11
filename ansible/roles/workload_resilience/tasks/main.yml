@@ -1,0 +1,69 @@
+---
+- name: Create Nginx resilience drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/nginx.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure bounded Nginx restart policy
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nginx.service.d/phase8-resilience.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      StartLimitIntervalSec=300
+      StartLimitBurst=5
+      [Service]
+      Restart=on-failure
+      RestartSec=5s
+  notify:
+    - Reload systemd manager
+    - Restart Nginx
+
+- name: Apply Nginx resilience policy
+  ansible.builtin.meta: flush_handlers
+
+- name: Validate active Nginx configuration
+  ansible.builtin.command:
+    argv: [nginx, -t]
+  changed_when: false
+
+- name: Check distributed proxy health
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
+    status_code: 200
+  register: proxy_health
+  retries: 5
+  delay: 2
+  until: proxy_health.status == 200
+  changed_when: false
+
+- name: Check local TLS web backend health
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --resolve
+      - "{{ tailscale_dns_name }}:{{ workload_web_port }}:{{ azure_private_ip }}"
+      - "https://{{ tailscale_dns_name }}:{{ workload_web_port }}/healthz"
+  changed_when: false
+
+- name: Check local application response
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ sample_app_port }}/"
+    status_code: 200
+    return_content: true
+  register: app_health
+  changed_when: false
+
+- name: Assert expected sample application response
+  ansible.builtin.assert:
+    that:
+      - "'Hybrid Infrastructure Lab - Application OK' in app_health.content"
+    fail_msg: Local sample application returned an unexpected response.

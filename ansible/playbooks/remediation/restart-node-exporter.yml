@@ -1,0 +1,38 @@
+---
+- name: Recover only unreachable Node Exporter instances
+  hosts: control:workload
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Probe private TLS Node Exporter
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ tailscale_dns_name }}:{{ monitoring_node_exporter_port }}:{{ azure_private_ip }}"
+          - "https://{{ tailscale_dns_name }}:{{ monitoring_node_exporter_port }}/metrics"
+      register: exporter_probe
+      failed_when: false
+      changed_when: false
+
+    - name: Restart Node Exporter only when metrics probe fails
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+      when: exporter_probe.rc != 0
+
+    - name: Verify Node Exporter recovery
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ tailscale_dns_name }}:{{ monitoring_node_exporter_port }}:{{ azure_private_ip }}"
+          - "https://{{ tailscale_dns_name }}:{{ monitoring_node_exporter_port }}/metrics"
+      changed_when: false

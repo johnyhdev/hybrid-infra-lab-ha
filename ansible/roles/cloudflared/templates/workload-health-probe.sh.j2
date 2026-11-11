@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+metric_dir=/var/lib/node_exporter/textfile
+output="$metric_dir/phase8_workload.prom"
+tmp="$(mktemp "$metric_dir/.phase8_workload.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+
+cloudflared=0
+if systemctl is-active --quiet cloudflared.service && curl -fsS --max-time 2 http://127.0.0.1:{{ cloudflared_metrics_port }}/metrics >/dev/null; then
+  cloudflared=1
+fi
+printf 'phase8_cloudflared_active %s\n' "$cloudflared" >> "$tmp"
+
+proxy=0
+if curl -fsS --max-time 3 http://127.0.0.1:{{ workload_proxy_port }}/healthz >/dev/null; then
+  proxy=1
+fi
+printf 'phase8_nginx_proxy_active %s\n' "$proxy" >> "$tmp"
+
+{% set workload_pool = (cloudflare_tunnel_pools | selectattr('members', 'contains', inventory_hostname) | list | first) %}
+{% set workload_backend_hosts = (cloudflare_tunnel_pools | selectattr('service_group', 'equalto', workload_pool.service_group) | map(attribute='members') | flatten | unique | list) %}
+{% for host in workload_backend_hosts %}
+backend=0
+probe="$(curl --fail --silent --show-error --max-time 3 \
+  --resolve '{{ hostvars[host].tailscale_dns_name }}:{{ workload_web_port }}:{{ hostvars[host].workload_private_ip }}' \
+  -w '%{http_code} %{time_total}' \
+  "https://{{ hostvars[host].tailscale_dns_name }}:{{ workload_web_port }}/healthz" 2>/dev/null || true)"
+status="${probe%% *}"
+duration="${probe##* }"
+if [[ "$status" == "200" ]]; then
+  backend=1
+fi
+printf 'phase8_backend_healthy{backend="{{ host }}"} %s\n' "$backend" >> "$tmp"
+if [[ "$duration" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  printf 'phase8_http_probe_duration_seconds{backend="{{ host }}"} %s\n' "$duration" >> "$tmp"
+fi
+printf 'phase8_http_probe_status{backend="{{ host }}"} %s\n' "${status:-0}" >> "$tmp"
+{% endfor %}
+
+{% if hostvars[inventory_hostname].is_database | default(false) %}
+database_ready=0
+if pg_isready -q; then database_ready=1; fi
+printf 'phase8_postgresql_ready %s\n' "$database_ready" >> "$tmp"
+{% endif %}
+
+chown root:node_exporter "$tmp"
+chmod 0640 "$tmp"
+mv "$tmp" "$output"
+trap - EXIT

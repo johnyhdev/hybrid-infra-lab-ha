@@ -1,0 +1,26 @@
+[Unit]
+Description=Cloudflare Tunnel connector for {{ cloudflare_pool_matches[0].pool_name }}
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+ExecStartPre=+/usr/bin/python3 /usr/local/lib/cloudflared/refresh_tunnel_token.py
+ExecStart=/usr/bin/cloudflared tunnel --metrics 127.0.0.1:{{ cloudflared_metrics_port }} --no-autoupdate run --token-file /run/cloudflared/token
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/cloudflared/runtime.json
+ReadWritePaths=/run/cloudflared
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

@@ -1,33 +1,62 @@
 {
   "tagOwners": {
     "tag:cm": ["autogroup:admin"],
+    "tag:workload": ["autogroup:admin"],
     "tag:ci": ["autogroup:admin"]
   },
-
-  "autoApprovers": {
-    "routes": {
-      "10.20.2.0/24": ["tag:cm"]
-    }
-  },
-
   "grants": [
     {
       "src": ["autogroup:admin"],
-      "dst": ["*"],
-      "ip": ["*"]
+      "dst": ["tag:cm", "tag:workload"],
+      "ip": ["tcp:22"]
     },
-
+    {
+      "src": ["autogroup:admin"],
+      "dst": ["tag:cm"],
+      "ip": ["tcp:3000", "tcp:9090", "tcp:9093"]
+    },
     {
       "src": ["tag:ci"],
-      "dst": ["tag:cm", "10.20.2.0/24"],
-      "ip": ["tcp:22", "tcp:443"]
+      "dst": ["tag:cm"],
+      "ip": ["tcp:22"]
+    },
+    {
+      "src": ["tag:cm"],
+      "dst": ["tag:workload"],
+      "ip": ["tcp:22"]
+    },
+    {
+      "src": ["tag:cm"],
+      "dst": ["tag:cm"],
+      "ip": ["tcp:22"]
+    },
+    {
+      "src": ["tag:cm"],
+      "dst": ["tag:cm"],
+      "ip": ["tcp:7946", "udp:7946", "tcp:9094", "udp:9094", "tcp:9095"]
+    },
+    {
+      "src": ["tag:cm"],
+      "dst": ["tag:cm"],
+      "ip": ["tcp:3000", "tcp:9090", "tcp:9093"]
     }
   ],
-
-"ssh": [
+  "ssh": [
     {
       "action": "accept",
       "src": ["autogroup:admin", "tag:ci"],
+      "dst": ["tag:cm"],
+      "users": ["azureadmin"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:admin", "tag:cm"],
+      "dst": ["tag:workload"],
+      "users": ["azureadmin"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:cm"],
       "dst": ["tag:cm"],
       "users": ["azureadmin"]
     },

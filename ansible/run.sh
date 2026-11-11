@@ -2,16 +2,13 @@
 
 set -euo pipefail
 
-echo "Logging in to Azure CLI via Managed Identity..."
-az login --identity > /dev/null
-
 cd "$(dirname "$0")"
 
 echo "========================================"
-echo "Generating Azure inventory"
+echo "Generating Tailscale inventory"
 echo "========================================"
 
-./inventory/generate_inventory.sh
+./inventory/generate_inventory.sh inventory/generated/tailscale.yml
 
 echo
 echo "========================================"
@@ -22,12 +19,10 @@ echo "========================================"
 MAX_RETRIES=15
 RETRY_COUNT=0
 
-# Ping only the 'workload' group and set SSH options to avoid a host-key prompt
+# Ping workload nodes over Tailscale SSH.
 until ansible workload \
-  -i inventory/generated/azure.yml \
-  --private-key ~/.ssh/vm-cm-workload \
+  -i inventory/generated/tailscale.yml \
   -u azureadmin \
-  --ssh-common-args='-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null' \
   -m ping -o >/dev/null 2>&1; do
 
   RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -47,8 +42,10 @@ echo "========================================"
 echo "Running Ansible"
 echo "========================================"
 
+sudo install -d -o azureadmin -g adm -m 2750 /var/log/ansible
+sudo chgrp adm /var/log/ansible/site.log 2>/dev/null || true
+sudo chmod 0640 /var/log/ansible/site.log 2>/dev/null || true
+umask 027
 ansible-playbook \
-  -i inventory/generated/azure.yml \
-  playbooks/site.yml \
-  --private-key ~/.ssh/vm-cm-workload \
-  --ssh-common-args='-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null'
+  -i inventory/generated/tailscale.yml \
+  playbooks/site.yml 2>&1 | tee -a /var/log/ansible/site.log

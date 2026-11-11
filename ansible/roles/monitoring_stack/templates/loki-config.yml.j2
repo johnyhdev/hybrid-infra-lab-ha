@@ -1,0 +1,71 @@
+auth_enabled: false
+
+server:
+  http_listen_address: "{{ azure_private_ip }}"
+  http_listen_port: {{ monitoring_loki_port }}
+  http_tls_config:
+    cert_file: /etc/phase8/tls/tls.crt
+    key_file: /etc/phase8/tls/tls.key
+  grpc_listen_address: "{{ ansible_host }}"
+  grpc_listen_port: 9095
+
+common:
+  path_prefix: /var/lib/loki
+  replication_factor: {{ monitoring_loki_replication_factor | int }}
+  ring:
+    instance_addr: "{{ ansible_host }}"
+    kvstore:
+      store: memberlist
+
+memberlist:
+  bind_addr: ["{{ ansible_host }}"]
+  bind_port: 7946
+  join_members:
+{% for peer in groups['control'] if peer != inventory_hostname %}
+    - "{{ hostvars[peer].ansible_host }}:7946"
+{% endfor %}
+
+ingester:
+  wal:
+    enabled: true
+    dir: /var/lib/loki/wal
+  chunk_idle_period: 1m
+  max_chunk_age: 5m
+  chunk_retain_period: 30s
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: azure
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    chunks_directory: /var/lib/loki/chunks
+    rules_directory: /var/lib/loki/rules
+  azure:
+    account_name: "{{ loki_storage_account_name }}"
+    container_name: "{{ loki_storage_container }}"
+    use_managed_identity: true
+    user_assigned_id: "{{ monitoring_loki_uai_client_id }}"
+  tsdb_shipper:
+    active_index_directory: /var/lib/loki/tsdb-index
+    cache_location: /var/lib/loki/tsdb-cache
+    cache_ttl: 24h
+
+compactor:
+  working_directory: /var/lib/loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  delete_request_store: azure
+
+limits_config:
+  retention_period: 168h
+  allow_structured_metadata: true
+
+analytics:
+  reporting_enabled: false

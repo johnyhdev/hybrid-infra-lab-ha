@@ -1,0 +1,8 @@
+[Unit]
+Description=Generate an ephemeral local Alertmanager webhook credential
+Before=prometheus-alertmanager.service phase8-recovery-dispatcher.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/phase8-create-alertmanager-token
+RemainAfterExit=yes

@@ -59,8 +59,16 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_workload_managed_identity_name: ${{ vars.WORKLOAD_MANAGED_IDENTITY_NAME }}
+      TF_VAR_key_vault_name: ${{ vars.AZURE_KEY_VAULT_NAME }}
+      TF_VAR_loki_storage_account_name: ${{ vars.LOKI_STORAGE_ACCOUNT_NAME }}
+      TF_VAR_ubuntu_image_version: ${{ vars.UBUNTU_IMAGE_VERSION }}
+      TF_VAR_tailscale_package_version: ${{ vars.TAILSCALE_PACKAGE_VERSION }}
+      TF_VAR_azure_cli_version: ${{ vars.AZURE_CLI_VERSION }}
       TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
       TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+      TF_VAR_tailscale_workload_client_id: ${{ vars.TAILSCALE_WORKLOAD_CLIENT_ID }}
+      TF_VAR_tailscale_workload_audience: ${{ vars.TAILSCALE_WORKLOAD_AUDIENCE }}
 
     outputs:
       artifact_name: ${{ steps.metadata.outputs.artifact_name }}
@@ -154,8 +162,16 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_workload_managed_identity_name: ${{ vars.WORKLOAD_MANAGED_IDENTITY_NAME }}
+      TF_VAR_key_vault_name: ${{ vars.AZURE_KEY_VAULT_NAME }}
+      TF_VAR_loki_storage_account_name: ${{ vars.LOKI_STORAGE_ACCOUNT_NAME }}
+      TF_VAR_ubuntu_image_version: ${{ vars.UBUNTU_IMAGE_VERSION }}
+      TF_VAR_tailscale_package_version: ${{ vars.TAILSCALE_PACKAGE_VERSION }}
+      TF_VAR_azure_cli_version: ${{ vars.AZURE_CLI_VERSION }}
       TF_VAR_tailscale_cm_client_id: ${{ vars.TAILSCALE_CM_CLIENT_ID }}
       TF_VAR_tailscale_cm_audience: ${{ vars.TAILSCALE_CM_AUDIENCE }}
+      TF_VAR_tailscale_workload_client_id: ${{ vars.TAILSCALE_WORKLOAD_CLIENT_ID }}
+      TF_VAR_tailscale_workload_audience: ${{ vars.TAILSCALE_WORKLOAD_AUDIENCE }}
 
     steps:
       - name: Checkout same main revision

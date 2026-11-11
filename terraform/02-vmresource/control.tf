@@ -1,5 +1,22 @@
+locals {
+  control_cloud_init_encoded = {
+    for name, vm in var.control_vms : name => base64encode(
+      templatefile("${path.module}/../../bootstrap/cm-cloud-init-ha.yaml", {
+        tailscale_cm_client_id    = var.tailscale_cm_client_id
+        tailscale_cm_audience     = var.tailscale_cm_audience
+        tailscale_package_version = var.tailscale_package_version
+        azure_cli_version         = var.azure_cli_version
+        cm_identity_client_id     = data.azurerm_user_assigned_identity.cm.client_id
+        hostname                  = name
+      })
+    )
+  }
+}
+
 resource "azurerm_network_interface" "cm" {
   for_each = var.control_vms
+
+  depends_on = [terraform_data.topology_guard]
 
   name                           = "nic-${each.key}"
   location                       = data.azurerm_resource_group.main.location
@@ -13,25 +30,11 @@ resource "azurerm_network_interface" "cm" {
   }
 }
 
-resource "tls_private_key" "internal_lab_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
-# Mark rendered cloud-init data as sensitive and encode it for Azure custom data.
+# Track cloud-init changes using SHA256 hash so plan output remains clean
 resource "terraform_data" "cm_cloud_init" {
   for_each = var.control_vms
 
-  input = sensitive(base64encode(
-    templatefile("${path.module}/../../bootstrap/cm-cloud-init-ha.yaml", {
-      internal_private_key_b64 = base64encode(tls_private_key.internal_lab_key.private_key_pem)
-      internal_public_key      = tls_private_key.internal_lab_key.public_key_openssh
-      tailscale_cm_client_id   = var.tailscale_cm_client_id
-      tailscale_cm_audience    = var.tailscale_cm_audience
-      hostname                 = each.key
-      workload_subnet_cidr     = azurerm_subnet.workload.address_prefixes[0]
-    })
-  ))
+  input = sha256(local.control_cloud_init_encoded[each.key])
 }
 
 resource "azurerm_linux_virtual_machine" "cm" {
@@ -57,8 +60,8 @@ resource "azurerm_linux_virtual_machine" "cm" {
     public_key = var.ssh_public_key
   }
 
-  # Read the pre-encoded cloud-init data from terraform_data.
-  custom_data = terraform_data.cm_cloud_init[each.key].output
+  # Read the Base64 cloud-init data directly from locals
+  custom_data = local.control_cloud_init_encoded[each.key]
 
   lifecycle {
     replace_triggered_by = [
@@ -68,14 +71,15 @@ resource "azurerm_linux_virtual_machine" "cm" {
 
   os_disk {
     caching              = "ReadWrite"
-    storage_account_type = "Standard_LRS"
+    storage_account_type = "StandardSSD_LRS" # Low cost Standard_LRS, good fit StandardSSD_LRS
+    disk_size_gb         = each.value.os_disk_size_gb
   }
 
   source_image_reference {
     publisher = "Canonical"
     offer     = "ubuntu-24_04-lts"
     sku       = "server-arm64"
-    version   = "latest"
+    version   = var.ubuntu_image_version
   }
 
   identity {
@@ -87,8 +91,33 @@ resource "azurerm_linux_virtual_machine" "cm" {
   }
 
   tags = {
-    role        = "control-manager"
-    environment = "lab"
-    managed_by  = "terraform"
+    role              = "control-manager"
+    data_disk_size_gb = tostring(each.value.data_disk_size_gb)
+    environment       = "lab"
+    managed_by        = "terraform"
   }
+}
+
+resource "azurerm_managed_disk" "cm_data" {
+  for_each = {
+    for name, vm in var.control_vms : name => vm
+    if vm.data_disk_size_gb > 0
+  }
+
+  name                 = "disk-${each.key}-data"
+  location             = data.azurerm_resource_group.main.location
+  resource_group_name  = data.azurerm_resource_group.main.name
+  storage_account_type = "StandardSSD_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = each.value.data_disk_size_gb
+  zone                 = each.value.zone
+}
+
+resource "azurerm_virtual_machine_data_disk_attachment" "cm_data" {
+  for_each = azurerm_managed_disk.cm_data
+
+  managed_disk_id    = each.value.id
+  virtual_machine_id = azurerm_linux_virtual_machine.cm[each.key].id
+  lun                = 0
+  caching            = "ReadWrite"
 }

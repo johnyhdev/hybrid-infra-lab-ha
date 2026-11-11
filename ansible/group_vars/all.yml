@@ -4,3 +4,60 @@ ansible_user: azureadmin
 ansible_python_interpreter: /usr/bin/python3
 
 timezone: Asia/Ho_Chi_Minh
+vnet_cidr: 10.20.0.0/16
+control_plane_subnet_cidr: 10.20.1.0/24
+workload_plane_subnet_cidr: 10.20.2.0/23
+
+# Phase 8 service ports and private backend proxy.
+monitoring_enabled: true
+monitoring_prometheus_port: 9090
+monitoring_alertmanager_port: 9093
+monitoring_grafana_port: 3000
+monitoring_node_exporter_port: 9100
+monitoring_loki_port: 3100
+monitoring_loki_proxy_port: 3101
+monitoring_prometheus_scrape_interval: 15s
+monitoring_prometheus_scrape_timeout: 10s
+monitoring_prometheus_evaluation_interval: 15s
+monitoring_prometheus_retention_time: 7d
+monitoring_data_dir: /var/lib/phase8-monitoring
+monitoring_dispatcher_port: 9088
+monitoring_recovery_cooldown_seconds: 300
+monitoring_dispatcher_enabled: true
+workload_proxy_port: 8081
+workload_web_port: 8443
+sample_app_port: 8082
+cloudflared_metrics_port: 2000
+
+# Critical OS package versions. Values are pinned where the OS repo supports it.
+package_versions:
+  nginx: "1.24.0-2ubuntu7"
+  python3: "3.12.3-1ubuntu2"
+  postgresql: "16.4-1.pgdg24.04+1"
+postgresql_major: "16"
+node_exporter_version: "1.9.1"
+node_exporter_sha256:
+  amd64: "becb950ee80daa8ae7331d77966d94a611af79ad0d3307380907e0ec08f5b4e8"
+  arm64: "848f139986f63232ced83babe3cad1679efdbb26c694737edc1f4fbd27b96203"
+
+monitoring_versions:
+  prometheus: "2.54.1"
+  alertmanager: "0.27.0"
+  grafana: "11.3.0"
+  loki: "3.5.0"
+  alloy: "1.5.0"
+
+workload_proxy_connect_timeout: 2s
+workload_proxy_read_timeout: 15s
+workload_proxy_send_timeout: 15s
+workload_proxy_max_tries: 2
+
+monitoring_control_group: control
+monitoring_workload_group: workload
+monitoring_alert_severities: [info, warning, critical]
+monitoring_recovery_action_ids:
+  - restart_nginx
+  - restart_postgresql
+  - restart_node_exporter
+  - stop_cpu_test_service
+monitoring_cpu_test_service: phase8-cpu-test

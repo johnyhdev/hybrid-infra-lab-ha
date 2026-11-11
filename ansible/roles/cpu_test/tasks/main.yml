@@ -1,0 +1,40 @@
+---
+- name: Install bounded CPU test utility
+  ansible.builtin.apt:
+    name: stress-ng
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create CPU test system user
+  ansible.builtin.user:
+    name: phase8-cpu-test
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    groups: node_exporter
+    append: true
+    state: present
+
+- name: Install CPU test textfile marker
+  ansible.builtin.copy:
+    dest: /usr/local/share/phase8-cpu-test-active.prom
+    owner: root
+    group: root
+    mode: "0644"
+    content: "phase8_cpu_test_active 1\n"
+
+- name: Install isolated CPU test systemd unit
+  ansible.builtin.template:
+    src: phase8-cpu-test.service.j2
+    dest: /etc/systemd/system/phase8-cpu-test.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Reload systemd and keep CPU test disabled until explicitly started
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: phase8-cpu-test
+    enabled: false
+    state: stopped

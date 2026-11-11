@@ -76,3 +76,8 @@ output "workload_vm_ids" {
     name => vm.id
   }
 }
+
+output "loki_storage_account_name" {
+  description = "Private zone-redundant object storage account used by Loki and recovery state"
+  value       = azurerm_storage_account.loki.name
+}

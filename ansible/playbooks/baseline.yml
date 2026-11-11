@@ -6,6 +6,11 @@
 
   roles:
     - linux_baseline
+    - data_disk
+    - tailscale_tls
+    - loki_proxy
+    - node_exporter
+    - log_collector
 
 
 - name: Configure Ubuntu workload nodes
@@ -14,3 +19,4 @@
 
   roles:
     - linux_baseline
+    - data_disk

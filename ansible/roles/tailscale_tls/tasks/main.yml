@@ -1,0 +1,71 @@
+---
+- name: Ensure shared TLS group exists
+  ansible.builtin.group:
+    name: phase8-tls
+    system: true
+    state: present
+
+- name: Grant Nginx access to the shared TLS certificate
+  ansible.builtin.user:
+    name: www-data
+    groups: phase8-tls
+    append: true
+    state: present
+  notify: Restart Nginx
+
+- name: Ensure Node Exporter service user can read TLS certificate
+  ansible.builtin.user:
+    name: node_exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    groups: phase8-tls
+    append: true
+    state: present
+  notify: Restart Node Exporter
+
+- name: Create private TLS directory
+  ansible.builtin.file:
+    path: /etc/phase8/tls
+    state: directory
+    owner: root
+    group: phase8-tls
+    mode: "0750"
+
+- name: Install certificate renewal helper
+  ansible.builtin.copy:
+    src: refresh-certificate.sh
+    dest: /usr/local/sbin/phase8-refresh-certificate
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install certificate renewal service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: refresh.service.j2
+      dest: /etc/systemd/system/phase8-refresh-certificate.service
+    - src: refresh.timer.j2
+      dest: /etc/systemd/system/phase8-refresh-certificate.timer
+
+- name: Issue or renew local tailnet certificate
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/phase8-refresh-certificate
+  register: certificate_refresh
+  changed_when: "'Issued or renewed' in certificate_refresh.stdout"
+  notify:
+    - Restart Nginx
+    - Restart Node Exporter
+
+- name: Enable automatic certificate renewal
+  ansible.builtin.systemd:
+    name: phase8-refresh-certificate.timer
+    enabled: true
+    state: started
+    daemon_reload: true

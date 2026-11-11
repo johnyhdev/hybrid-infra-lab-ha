@@ -1,0 +1,7 @@
+{
+  "managed_identity_client_id": {{ monitoring_loki_uai_client_id | to_json }},
+  "storage_account_name": {{ loki_storage_account_name | to_json }},
+  "state_container": "recovery-state",
+  "state_blob": "dispatcher-state.json",
+  "cooldown_seconds": {{ monitoring_recovery_cooldown_seconds | int }}
+}
