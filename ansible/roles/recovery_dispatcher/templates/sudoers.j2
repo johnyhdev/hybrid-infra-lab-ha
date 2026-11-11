@@ -1,0 +1,7 @@
+Defaults:phase8-dispatcher !setenv
+phase8-dispatcher ALL=(root) NOPASSWD: \
+  /usr/local/sbin/phase8-recovery-restart-nginx *, \
+  /usr/local/sbin/phase8-recovery-restart-cloudflared *, \
+  /usr/local/sbin/phase8-recovery-restart-node-exporter *, \
+  /usr/local/sbin/phase8-recovery-restart-postgresql *, \
+  /usr/local/sbin/phase8-recovery-stop-cpu-test *

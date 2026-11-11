@@ -2,7 +2,7 @@
 
 - name: Install Nginx
   ansible.builtin.apt:
-    name: nginx
+    name: "nginx={{ package_versions.nginx }}"
     state: present
     update_cache: true
 
@@ -32,3 +32,24 @@
     name: nginx
     enabled: true
     state: started
+
+- name: Validate active Nginx configuration
+  ansible.builtin.command:
+    argv:
+      - nginx
+      - -t
+  changed_when: false
+
+- name: Apply validated Nginx configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Check local application HTTP health
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ sample_app_port }}/"
+    status_code: 200
+    return_content: true
+  register: local_app_health
+  retries: 10
+  delay: 2
+  until: local_app_health.status == 200
+  changed_when: false

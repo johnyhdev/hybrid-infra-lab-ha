@@ -1,36 +1,71 @@
 #cloud-config
 hostname: ${hostname}
 fqdn: ${hostname}
-
 manage_etc_hosts: true
-
-users:
-  - default
-  - name: azureadmin
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    ssh_authorized_keys:
-      - ${internal_public_key}
-
 package_update: true
-
 packages:
   - curl
-  - git
   - jq
-  - tar
+  - ca-certificates
+  - ufw
+  - gnupg
+
+write_files:
+  - path: /usr/local/sbin/join-tailscale-workload
+    owner: root:root
+    permissions: "0750"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      status="$(tailscale status --json 2>/dev/null | jq -r '.BackendState // empty' || true)"
+      if [ "$${status}" = "Running" ]; then
+        exit 0
+      fi
+
+      token=""
+      for attempt in $(seq 1 30); do
+        token="$(curl -fsS -H Metadata:true \
+          'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource=api://AzureADTokenExchange' \
+          | jq -r '.access_token // empty' || true)"
+        if [ -n "$${token}" ]; then break; fi
+        sleep 3
+      done
+      if [ -z "$${token}" ]; then
+        echo "Could not obtain workload managed-identity token" >&2
+        exit 1
+      fi
+
+      tailscale up --reset \
+        --id-token="$${token}" \
+        --client-id='${tailscale_workload_client_id}' \
+        --audience='${tailscale_workload_audience}' \
+        --advertise-tags=tag:workload \
+        --hostname='${hostname}' \
+        --ssh
+      unset token
+
+  - path: /etc/systemd/system/tailscale-workload-join.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Join workload VM to Tailscale using Azure Managed Identity WIF
+      Wants=network-online.target tailscaled.service
+      After=network-online.target tailscaled.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/join-tailscale-workload
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
 
 runcmd:
-  # Create a 2 GB swap file
-  - dd if=/dev/zero of=/swapfile bs=1M count=2048 || true
-  - chmod 600 /swapfile || true
-  - mkswap /swapfile || true
-  - swapon /swapfile || true
-  - grep -q '/swapfile' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
-
-  # Configure the firewall to allow SSH
-  - ufw allow ssh
-  - ufw --force enable || true
-
-  # Show hostname
-  - hostnamectl
+  - [ bash, -lc, "curl -fsSL 'https://raw.githubusercontent.com/tailscale/tailscale/v${tailscale_package_version}/scripts/installer.sh' | TAILSCALE_VERSION='${tailscale_package_version}' sh" ]
+  - [ systemctl, enable, --now, tailscaled ]
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, tailscale-workload-join.service ]
+  - [ ufw, allow, in, on, tailscale0, to, any, port, "22", proto, tcp ]
+  - [ ufw, --force, enable ]

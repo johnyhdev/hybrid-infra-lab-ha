@@ -1,6 +1,6 @@
 # 🚀 Hybrid Infrastructure Lab (Terraform, Azure, Ansible, GitHub OIDC & Tailscale)
 
-Welcome to the **Hybrid Infrastructure Lab**! 
+Welcome to the **Hybrid Infrastructure Lab**!
 
 This repository provides a complete, hands-on blueprint for building a **Zero-Trust, highly secure, and automated hybrid network**. It bridges public cloud resources (Azure) with automated configuration management (Ansible) and modern identity controls (GitHub OIDC & Tailscale Mesh).
 
@@ -35,11 +35,11 @@ In traditional infrastructure management, engineering teams often face major cha
 
 ## 🏗️ Architecture Overview
 
-### 1. Current Implementation (Base Zero-Trust Lab)
+### 1. Phase 8 code baseline (runtime acceptance pending)
 ![Current Architecture](docs/assets/2610161009-01-gitops-driven-modern-workplace-and-zero-trust-access-up.webp)
 
-### 2. Target Architecture State (Roadmap & Vision)
-This diagram illustrates the end-state design including observability (Prometheus/Grafana) and optional ingress load balancing:
+### 2. Architecture overview
+The checked-in defaults describe two control managers and two workloads across availability zones. All VMs are private-only and individually enrolled in Tailscale. Cloudflare Tunnel connectors and Nginx proxies run on workloads; monitoring and recovery services run on control managers. This diagram is conceptual; live behavior is not yet acceptance-tested.
 
 [![Architecture Blueprint](https://img.shields.io/badge/Architecture-View%20PDF%20Blueprint-blue?style=for-the-badge&logo=adobeacrobatreader)](docs/assets/2610161009-03-Gitops-driven-zero-trust-infrastructure-lab.pdf)
 
@@ -53,14 +53,14 @@ Developer / GitHub PR
         |                                                       |
         +--> Tailscale policy GitOps ---------------------------+
                                                                 |
-Azure: rg-hybrid-infra-lab                                     |
-  +-- id-cm (User Assigned Managed Identity)                    |
-  +-- VNet 10.20.0.0/16                                        |
-  |    +-- automation 10.20.1.0/24                              |
-  |    |     +-- control-manager VM (tag:cm) <--- Tailscale     |
-  |    +-- workload 10.20.2.0/24                                |
-  |          +-- workload VM(s) <--- Ansible over private VNet  |
-  +-- no VM Public IP / no public SSH                           |
+Azure: rg-hybrid-infra-lab-ha
+  +-- id-cm-ha + id-workload-ha; private Key Vault / Loki Blob
+  +-- VNet 10.20.0.0/16
+  |    +-- control subnet 10.20.1.0/24: CM-01/02 (tag:cm)
+  |    |     +-- Prometheus, Alertmanager, Grafana, Loki, recovery
+  |    +-- workload subnet 10.20.2.0/23: workload-01/02 (tag:workload)
+  |          +-- cloudflared -> local Nginx proxy -> private TLS backends
+  +-- no VM public IP / no subnet-router route
 
 ```
 Apply `terraform/01-identity` first, then `terraform/02-vmresource`. A successful VM-resource apply can trigger the Ansible deployment workflow. The state storage account and container must exist before Terraform initialization; see [guide 02](docs/02-azure-state-backend.md).
@@ -70,12 +70,14 @@ Apply `terraform/01-identity` first, then `terraform/02-vmresource`. A successfu
 ## 📂 Repository Structure
 
 - `.github/workflows/` — GitHub Actions workflows for Terraform plan/apply/destroy, Ansible checks/deploy, and Tailscale policy GitOps.
+- `.github/agents/` — Repository-scoped Phase 8 coordinator, implementation, and independent security-review agents.
 - `terraform/01-identity/` — Persistent Resource Group, managed identity, and `cm_reader` role assignment.
 - `terraform/02-vmresource/` — Private network, VMs, NSGs, and optional private Load Balancer scaffolding.
 - `bootstrap/` — Control-manager and workload cloud-init scripts.
 - `ansible/` — Dynamic inventory generator, playbooks, roles, and templates.
 - `tailscale/policy.hujson` — Tags, route approval, grants, and Tailscale SSH rules.
 - `docs/` — Ordered setup, verification, troubleshooting, and cleanup instructions.
+- `docs/phase-8/` — Phase 8 blueprint, concise external setup, file manifest, acceptance matrix, changelog, and operator guide. Code is present, but external placeholders and runtime tests remain open.
 
 ---
 
@@ -93,29 +95,35 @@ Follow the numbered setup guides in the `docs/` folder in order:
 8. [08 — Limitations, security, and cleanup](docs/08-limitations-and-cleanup.md)
 9. [09 — Clone customization and security audit](docs/09-clone-customization-and-security-audit.md)
 
+### Phase 8 — HA platform implementation (runtime acceptance pending)
+
+Phase 8 code now covers configurable multi-zone VM maps, role-specific Tailscale identities, workload Tunnel/proxy roles, TLS telemetry, monitoring, and fixed recovery actions. It is not yet runtime-accepted: exact image/package/provider values need environment setup, and T01–T10/A01–A12 remain `NOT RUN`. Start with [one-time external setup](docs/phase-8/EXTERNAL-SETUP.md), then review the [blueprint](docs/phase-8/PHASE-8-BLUEPRINT.md), [manifest](docs/phase-8/PHASE-8-FILE-MANIFEST.md), [test matrix](docs/phase-8/PHASE-8-TEST-MATRIX.md), [changelog](docs/phase-8/PHASE-8-CHANGELOG.md), and [operator guide](docs/phase-8/PHASE-8-OPERATIONS.md). PostgreSQL remains single-instance; Patroni is optional.
+
+Terraform is being changed to default to two control managers and two workloads across zones. HA and failover must still be verified; one-node mode is non-HA. AWX is excluded. Cloudflare federation is preferred; if unavailable, the approved design permits a narrowly scoped, expiring Cloudflare API Token in Azure Key Vault, retrieved by workload Managed Identity at runtime to obtain/refresh Tunnel Tokens. This is a persistent credential, not short-lived; never expose it through Terraform state, cloud-init, logs or artifacts. SMTP/chat require separate approval. Deployment remains behind protected GitHub Environment approval, with exact commit pinning and short-lived OIDC identities as acceptance requirements.
+
 ---
 
 ## ⚠️ Security Notes and Known Limits
 
-- **SSH & Credentials:** Azure Linux VM provisioning uses an administrator SSH public key and disables password authentication. The public key is supplied via `SSH_PUBLIC_KEY` in GitHub Environments. Terraform also generates an internal control-manager-to-workload SSH key stored in state and delivered through cloud-init/custom data. Protect state, plans, artifacts, and cloud-init data; Terraform's `sensitive` flag does not encrypt state.
-- **Network Security:** The Ansible workflow joins Tailscale through OIDC and uses OpenSSH to reach the control manager without storing an administrator private key in GitHub. Automation uses trust-on-first-use rather than a pre-pinned host key; workload inventory also discards known-host data, so server identity is not independently verified.
+- **SSH & Credentials:** Azure Linux VM provisioning still requires an administrator SSH **public** key (`SSH_PUBLIC_KEY`) because Azure requires a VM login method; password authentication is disabled. The public key is not the routine management mechanism. Tailscale SSH is used for operator and Ansible access, without a CI private key or CM-to-workload SSH key.
+- **Network Security:** The Ansible workflow joins Tailscale through OIDC and connects to CM/workload Tailscale nodes. Azure Managed Identity is used for inventory discovery and approved Key Vault access. No public SSH or direct VNet SSH is intended; verify deployed NSGs and Tailscale policy before claiming the boundary is enforced.
 - **Functional Scope:**
-  - The sample app is a small HTTP responder on loopback port 8080 proxied by Nginx on port 80. No public internet endpoint.
-  - PostgreSQL packages are installed, but no database, schema, or credentials are configured.
-  - Node Exporter is installed, but no Prometheus server or dashboard is included.
-  - Scale-out, High Availability (HA), and automated failover are not validated.
+  - Workload app port 8082 is served behind private TLS Nginx on 8443; Cloudflare Tunnel targets the local Nginx proxy on 8081.
+  - PostgreSQL is a single TLS-enabled workload host; the sample app does not use it.
+  - Prometheus, Alertmanager, Grafana, Loki, Alloy, and bounded dispatcher code are present, but deployment and failover are not validated.
+  - Map-based scale-out is provisioning, not autoscaling; HA and automated recovery are not accepted until tested.
 - **Workflow protections:** PR checks request GitHub OIDC permissions; ensure untrusted PR code cannot obtain Azure credentials or state access. Configure and verify Environment reviewers, branch restrictions, and federated credentials outside the repository.
 
 See [all limitations and cleanup guidance](docs/08-limitations-and-cleanup.md) for more details.
 
 ---
 
-## 🔮 Roadmap & Future Enhancements
+## 🔮 Remaining verification and external setup
 
-- [ ] **Cloudflare Tunnel Integration:** Expose private workload web services securely.
-- [ ] **High Availability & Load Balancing:** Integrate Azure Load Balancer or Cloudflare Balancer.
-- [ ] **Full Observability Stack:** Deploy centralized Prometheus + Grafana and Alertmanager with Lark / Teams notifications.
-- [ ] **Self-Healing Automation:** Auto-remediation playbooks for failed services.
+- [ ] Populate approved exact package/image versions and environment-specific Tailscale, Cloudflare, Key Vault and storage values.
+- [ ] Run repository static validation and resolve failures before any apply.
+- [ ] Deploy only through protected approvals; verify private secret enrollment, endpoints, TLS, alerting and Tailscale access.
+- [ ] Execute authorized HA/failure/rebuild tests and record evidence for T01–T10/A01–A12.
 
 ---
 

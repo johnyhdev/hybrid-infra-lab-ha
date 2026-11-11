@@ -25,32 +25,29 @@ resource "azurerm_lb_backend_address_pool" "workload" {
   loadbalancer_id = azurerm_lb.workload[0].id
 }
 
+resource "azurerm_network_interface_backend_address_pool_association" "workload" {
+  for_each = var.enable_load_balancer ? var.workload_vms : {}
+
+  network_interface_id    = azurerm_network_interface.workload[each.key].id
+  ip_configuration_name   = "internal"
+  backend_address_pool_id = azurerm_lb_backend_address_pool.workload[0].id
+}
+
 resource "azurerm_lb_probe" "http" {
   count = var.enable_load_balancer ? 1 : 0
 
-  name            = "http-health-probe"
+  name            = "proxy-health-probe"
   loadbalancer_id = azurerm_lb.workload[0].id
 
   protocol     = "Http"
-  port         = 80
-  request_path = "/"
-}
-
-resource "azurerm_lb_probe" "https" {
-  count = var.enable_load_balancer ? 1 : 0
-
-  name            = "https-health-probe"
-  loadbalancer_id = azurerm_lb.workload[0].id
-
-  protocol     = "Https"
-  port         = 443
-  request_path = "/"
+  port         = 8081
+  request_path = "/healthz"
 }
 
 resource "azurerm_lb_rule" "http" {
   count = var.enable_load_balancer ? 1 : 0
 
-  name                           = "http"
+  name                           = "proxy-http"
   loadbalancer_id                = azurerm_lb.workload[0].id
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids = [
@@ -59,26 +56,8 @@ resource "azurerm_lb_rule" "http" {
   probe_id = azurerm_lb_probe.http[0].id
 
   protocol                = "Tcp"
-  frontend_port           = 80
-  backend_port            = 80
-  idle_timeout_in_minutes = 4
-  load_distribution       = "Default"
-}
-
-resource "azurerm_lb_rule" "https" {
-  count = var.enable_load_balancer ? 1 : 0
-
-  name                           = "https"
-  loadbalancer_id                = azurerm_lb.workload[0].id
-  frontend_ip_configuration_name = "frontend"
-  backend_address_pool_ids = [
-    azurerm_lb_backend_address_pool.workload[0].id
-  ]
-  probe_id = azurerm_lb_probe.https[0].id
-
-  protocol                = "Tcp"
-  frontend_port           = 443
-  backend_port            = 443
+  frontend_port           = 8081
+  backend_port            = 8081
   idle_timeout_in_minutes = 4
   load_distribution       = "Default"
 }

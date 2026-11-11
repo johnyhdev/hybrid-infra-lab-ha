@@ -1,0 +1,16 @@
+---
+- name: Start the bounded CPU test on one explicitly selected workload node
+  hosts: "{{ cpu_test_target | default(groups['workload'][-1]) }}"
+  become: true
+
+  tasks:
+    - name: Require explicit CPU test opt-in
+      ansible.builtin.assert:
+        that:
+          - cpu_test_enabled | default(false) | bool
+        fail_msg: Set cpu_test_enabled=true in protected host/group configuration before starting the test.
+
+    - name: Start time- and CPU-limited test service
+      ansible.builtin.systemd:
+        name: phase8-cpu-test
+        state: started

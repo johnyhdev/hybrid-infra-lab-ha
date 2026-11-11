@@ -1,0 +1,100 @@
+---
+- name: Require exact Alloy package version
+  ansible.builtin.assert:
+    that:
+      - monitoring_versions.alloy is defined
+      - "'REPLACE_' not in monitoring_versions.alloy"
+      - "'*' not in monitoring_versions.alloy"
+    fail_msg: Populate an exact Alloy version in ansible/group_vars/all.yml.
+
+- name: Create APT keyring directory for Alloy
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Grafana package signing key for Alloy
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg-full.key
+    dest: /etc/apt/keyrings/grafana.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Grafana package repository for Alloy
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+    filename: grafana
+    state: present
+
+- name: Install pinned Grafana Alloy package
+  ansible.builtin.apt:
+    name: "alloy={{ monitoring_versions.alloy }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Add Alloy service user to log-reading group
+  ansible.builtin.user:
+    name: alloy
+    groups: adm
+    append: true
+    state: present
+  notify: Restart Alloy
+
+- name: Create Alloy data directory
+  ansible.builtin.file:
+    path: /var/lib/alloy
+    state: directory
+    owner: alloy
+    group: alloy
+    mode: "0750"
+
+- name: Install Alloy configuration
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: /etc/alloy/config.alloy
+    owner: root
+    group: alloy
+    mode: "0640"
+  notify: Restart Alloy
+
+- name: Install hardened Alloy systemd service override
+  ansible.builtin.file:
+    path: /etc/systemd/system/alloy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install hardened Alloy systemd service override
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/alloy.service.d/phase8.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/alloy run --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+      Restart=on-failure
+      RestartSec=5s
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/var/lib/alloy
+  notify:
+    - Reload systemd manager
+    - Restart Alloy
+
+- name: Enable Alloy log collector
+  ansible.builtin.systemd:
+    name: alloy
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply Alloy configuration
+  ansible.builtin.meta: flush_handlers

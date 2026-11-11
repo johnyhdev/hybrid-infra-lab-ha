@@ -1,0 +1,36 @@
+upstream phase8_loki_peers {
+    least_conn;
+{% for host in groups['control'] %}
+    server {{ hostvars[host].azure_private_ip }}:{{ monitoring_loki_port }} max_fails=2 fail_timeout=5s;
+{% endfor %}
+    keepalive 16;
+}
+
+map $upstream_addr $phase8_loki_tls_name {
+    default "";
+{% for host in groups['control'] %}
+    ~*{{ hostvars[host].azure_private_ip | regex_escape }}:{{ monitoring_loki_port }} "{{ hostvars[host].tailscale_dns_name }}";
+{% endfor %}
+}
+
+server {
+    listen 127.0.0.1:{{ monitoring_loki_proxy_port }};
+    server_name localhost;
+
+    location / {
+        proxy_pass https://phase8_loki_peers;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $phase8_loki_tls_name;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 4;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries {{ groups['control'] | length }};
+    }
+}

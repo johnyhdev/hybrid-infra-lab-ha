@@ -1,0 +1,28 @@
+[Unit]
+Description=Bounded Phase 8 CPU load validation workload
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=1
+
+[Service]
+Type=simple
+User=phase8-cpu-test
+Group=phase8-cpu-test
+SupplementaryGroups=node_exporter
+ExecStartPre=+/usr/bin/install -o root -g node_exporter -m 0640 /usr/local/share/phase8-cpu-test-active.prom /var/lib/node_exporter/textfile/phase8-cpu-test-active.prom
+ExecStart=/usr/bin/stress-ng --cpu 1 --cpu-load 60 --timeout 5m --metrics-brief
+ExecStopPost=+/usr/bin/rm -f /var/lib/node_exporter/textfile/phase8-cpu-test-active.prom
+Restart=no
+RuntimeMaxSec=5m
+TimeoutStopSec=15s
+CPUQuota=60%
+MemoryMax=512M
+TasksMax=16
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/node_exporter/textfile
+
+[Install]
+WantedBy=multi-user.target

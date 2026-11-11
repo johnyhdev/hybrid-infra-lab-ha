@@ -61,7 +61,7 @@ jobs:
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           PR_HEAD_SHA=$(echo "$PR_JSON" | jq -r '.[0].head.sha')
 
-          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             echo "No pull request found for commit ${GITHUB_SHA}"
             exit 1
           fi
@@ -86,7 +86,7 @@ jobs:
           PLAN_RUN_ID=$(echo "$RUN_JSON" | jq -r '.[0].databaseId')
           PLAN_SHA=$(echo "$RUN_JSON" | jq -r '.[0].headSha')
 
-          if [ -z "$PLAN_RUN_ID" ] \vert{}\vert{} [ "$PLAN_RUN_ID" = "null" ]; then
+          if [ -z "$PLAN_RUN_ID" ] || [ "$PLAN_RUN_ID" = "null" ]; then
             echo "No successful Terraform Identity Plan HA run found for SHA $PR_HEAD_SHA"
             exit 1
           fi
@@ -125,7 +125,7 @@ jobs:
             echo "## Terraform Changes"
             echo
             echo '```text'
-            cat approved-plan/identity-tfplan.txt
+            cat approved-plan/identity-ha-tfplan.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           
@@ -162,6 +162,7 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_key_vault_name: ${{ vars.AZURE_KEY_VAULT_NAME }}
 
     steps:
       - name: Checkout Main
@@ -197,10 +198,10 @@ jobs:
         run: |
           test -f identity-ha.tfplan
           test -f identity-ha-tfplan.txt
-          test -f plan-metadata-ha.txt
+          test -f identity-ha-plan-metadata.txt
 
-          grep -F "Root Module: terraform/01-identity" plan-metadata-ha.txt
-          grep -F "PR Head SHA: $EXPECTED_SHA" plan-metadata-ha.txt
+          grep -F "Root Module: terraform/01-identity" identity-ha-plan-metadata.txt
+          grep -F "PR Head SHA: $EXPECTED_SHA" identity-ha-plan-metadata.txt
 
           echo "Terraform Identity plan artifact verification: PASS"
 

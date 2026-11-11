@@ -1,0 +1,18 @@
+---
+# Non-secret Cloudflare Tunnel Pool metadata. Populate IDs and membership using
+# docs/phase-8/EXTERNAL-SETUP.md. Never add API/Tunnel token values.
+cloudflared_package_version: "REPLACE_WITH_APPROVED_REPO_VERSION"
+cloudflare_api_token_secret_name: "cloudflare-api-token"
+cloudflare_key_vault_uri: "https://REPLACE_WITH_VAULT.vault.azure.net"
+cloudflare_account_id: "REPLACE_WITH_ACCOUNT_ID"
+
+cloudflare_tunnel_pools:
+  - pool_name: web-primary
+    tunnel_id: "REPLACE_WITH_TUNNEL_UUID"
+    region: global
+    service_group: web
+    desired_replicas: 2
+    max_replicas: 25
+    members:
+      - vm-workload-01
+      - vm-workload-02

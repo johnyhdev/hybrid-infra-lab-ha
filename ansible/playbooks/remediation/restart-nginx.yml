@@ -1,0 +1,30 @@
+---
+- name: Recover only unhealthy workload Nginx nodes
+  hosts: workload
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Probe local Nginx proxy readiness
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
+        status_code: 200
+      register: nginx_probe
+      failed_when: false
+      changed_when: false
+
+    - name: Restart Nginx only when readiness fails
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+      when: nginx_probe.status | default(0) != 200
+
+    - name: Verify Nginx proxy recovered
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
+        status_code: 200
+      retries: 5
+      delay: 2
+      register: nginx_recovery
+      until: nginx_recovery.status == 200
+      changed_when: false

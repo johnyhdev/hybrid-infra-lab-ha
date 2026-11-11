@@ -1,0 +1,8 @@
+---
+- name: Deploy HA observability services on all control managers
+  hosts: control
+  become: true
+
+  roles:
+    - recovery_dispatcher
+    - monitoring_stack

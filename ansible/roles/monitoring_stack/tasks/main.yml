@@ -1,0 +1,393 @@
+---
+- name: Require HA control-plane membership
+  ansible.builtin.assert:
+    that:
+      - groups['control'] | length >= 1
+      - monitoring_loki_replication_factor | int >= 1
+      - monitoring_loki_replication_factor | int <= groups['control'] | length
+      - loki_storage_account_name is defined
+      - "'REPLACE_' not in loki_storage_account_name"
+      - monitoring_loki_sha256_arm64 is defined
+      - "'REPLACE_' not in monitoring_loki_sha256_arm64"
+    fail_msg: Configure two control nodes and the Loki Storage account output before deployment.
+  run_once: true
+
+- name: Require exact monitoring package versions
+  ansible.builtin.assert:
+    that:
+      - "'REPLACE_' not in monitoring_versions.prometheus"
+      - "'REPLACE_' not in monitoring_versions.alertmanager"
+      - "'REPLACE_' not in monitoring_versions.grafana"
+      - "'*' not in monitoring_versions.prometheus"
+      - "'*' not in monitoring_versions.alertmanager"
+      - "'*' not in monitoring_versions.grafana"
+      - monitoring_versions.loki is match('^[0-9]+[.][0-9]+[.][0-9]+$')
+    fail_msg: Populate exact approved package versions in ansible/group_vars/all.yml.
+  run_once: true
+
+- name: Create APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Grafana package signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg-full.key
+    dest: /etc/apt/keyrings/grafana.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Grafana package repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+    filename: grafana
+    state: present
+
+- name: Install pinned monitoring packages
+  ansible.builtin.apt:
+    name:
+      - "prometheus={{ monitoring_versions.prometheus }}"
+      - "prometheus-alertmanager={{ monitoring_versions.alertmanager }}"
+      - "grafana={{ monitoring_versions.grafana }}"
+      - unzip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Allow monitoring UIs and APIs only over the tailnet interface
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    interface: tailscale0
+    direction: in
+  loop:
+    - "{{ monitoring_prometheus_port }}"
+    - "{{ monitoring_alertmanager_port }}"
+    - "{{ monitoring_grafana_port }}"
+    - "7946"
+    - "9094"
+    - "9095"
+
+- name: Allow Alertmanager peer gossip over the tailnet interface
+  community.general.ufw:
+    rule: allow
+    port: '9094'
+    proto: udp
+    interface: tailscale0
+    direction: in
+
+- name: Allow Loki memberlist peer gossip over the tailnet interface
+  community.general.ufw:
+    rule: allow
+    port: '7946'
+    proto: udp
+    interface: tailscale0
+    direction: in
+
+- name: Allow private Loki traffic from control and workload subnets
+  community.general.ufw:
+    rule: allow
+    port: "{{ monitoring_loki_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop:
+    - "{{ control_plane_subnet_cidr }}"
+    - "{{ workload_plane_subnet_cidr }}"
+
+- name: Create Loki service group
+  ansible.builtin.group:
+    name: loki
+    system: true
+    state: present
+
+- name: Create Loki service user
+  ansible.builtin.user:
+    name: loki
+    group: loki
+    groups: "loki,phase8-tls"
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+- name: Validate Loki ARM64 execution architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in ['aarch64', 'arm64']
+    fail_msg: Loki role currently pins the ARM64 release required by the repository's VM architecture.
+
+- name: Download pinned Loki ARM64 release
+  ansible.builtin.get_url:
+    url: "https://github.com/grafana/loki/releases/download/v{{ monitoring_versions.loki }}/loki-linux-arm64.zip"
+    dest: "/tmp/loki-linux-arm64-{{ monitoring_versions.loki }}.zip"
+    checksum: "sha256:{{ monitoring_loki_sha256_arm64 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create Loki release directory
+  ansible.builtin.file:
+    path: "/opt/loki/{{ monitoring_versions.loki }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Extract pinned Loki binary
+  ansible.builtin.unarchive:
+    src: "/tmp/loki-linux-arm64-{{ monitoring_versions.loki }}.zip"
+    dest: "/opt/loki/{{ monitoring_versions.loki }}"
+    remote_src: true
+    creates: "/opt/loki/{{ monitoring_versions.loki }}/loki-linux-arm64"
+
+- name: Install Loki binary
+  ansible.builtin.copy:
+    src: "/opt/loki/{{ monitoring_versions.loki }}/loki-linux-arm64"
+    dest: /usr/local/bin/loki
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart Loki
+
+- name: Install Loki systemd unit
+  ansible.builtin.template:
+    src: loki.service.j2
+    dest: /etc/systemd/system/loki.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd manager
+    - Restart Loki
+
+- name: Create monitoring data directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "0750"
+  loop:
+    - { path: /var/lib/prometheus, owner: prometheus, group: prometheus }
+    - { path: /var/lib/alertmanager, owner: alertmanager, group: alertmanager }
+    - { path: /var/lib/loki, owner: loki, group: loki }
+    - { path: /etc/loki, owner: root, group: loki }
+    - { path: /etc/prometheus/rules, owner: root, group: prometheus }
+    - { path: /etc/grafana/provisioning/datasources, owner: root, group: grafana }
+    - { path: /etc/grafana/provisioning/dashboards, owner: root, group: grafana }
+    - { path: /var/lib/grafana/dashboards, owner: root, group: grafana }
+
+- name: Configure Prometheus command-line arguments
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus
+    owner: root
+    group: root
+    mode: "0644"
+    content: >-
+      ARGS="--config.file=/etc/prometheus/prometheus.yml
+      --storage.tsdb.path=/var/lib/prometheus
+      --storage.tsdb.retention.time={{ monitoring_prometheus_retention_time }}
+      --storage.tsdb.retention.size={{ monitoring_prometheus_retention_size }}
+      --web.listen-address={{ ansible_host }}:{{ monitoring_prometheus_port }}"
+  notify: Restart Prometheus
+
+- name: Configure Alertmanager command-line arguments
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-alertmanager
+    owner: root
+    group: root
+    mode: "0644"
+    content: >-
+      ARGS="--config.file=/etc/prometheus/alertmanager.yml
+      --storage.path=/var/lib/alertmanager
+      --web.listen-address={{ ansible_host }}:{{ monitoring_alertmanager_port }}
+      --cluster.listen-address={{ ansible_host }}:9094
+    {% for peer in groups['control'] if peer != inventory_hostname %}      --cluster.peer={{ hostvars[peer].ansible_host }}:9094
+{% endfor %}      "
+  notify: Restart Alertmanager
+
+- name: Install Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: root
+    group: prometheus
+    mode: "0640"
+  notify: Restart Prometheus
+
+- name: Install Prometheus workload alert rules
+  ansible.builtin.template:
+    src: workload-alerts.yml.j2
+    dest: /etc/prometheus/rules/workload-alerts.yml
+    owner: root
+    group: prometheus
+    mode: "0640"
+  notify: Restart Prometheus
+
+- name: Install Alertmanager routes
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: alertmanager
+    mode: "0640"
+  notify: Restart Alertmanager
+
+- name: Install Loki configuration
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: /etc/loki/config.yml
+    owner: root
+    group: loki
+    mode: "0640"
+  notify: Restart Loki
+
+- name: Configure Grafana tailnet listener
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: server
+    option: http_addr
+    value: "{{ ansible_host }}"
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Configure Grafana port
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: server
+    option: http_port
+    value: "{{ monitoring_grafana_port }}"
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Restrict Grafana to tailnet-only read-only access
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: auth.anonymous
+    option: enabled
+    value: "true"
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Set Grafana anonymous role to Viewer
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: auth.anonymous
+    option: org_role
+    value: Viewer
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Disable Grafana login form and signups
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: users
+    option: allow_sign_up
+    value: "false"
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Disable Grafana basic authentication
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: auth.basic
+    option: enabled
+    value: "false"
+    no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Provision Grafana data sources
+  ansible.builtin.template:
+    src: grafana-datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/phase8.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart Grafana
+
+- name: Provision Grafana dashboard provider
+  ansible.builtin.template:
+    src: grafana-dashboard-provider.yml.j2
+    dest: /etc/grafana/provisioning/dashboards/phase8.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart Grafana
+
+- name: Install infrastructure dashboard
+  ansible.builtin.template:
+    src: hybrid-infrastructure-dashboard.json.j2
+    dest: /var/lib/grafana/dashboards/hybrid-infrastructure.json
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart Grafana
+
+- name: Validate Prometheus rules
+  ansible.builtin.command:
+    argv: [promtool, check, rules, /etc/prometheus/rules/workload-alerts.yml]
+  changed_when: false
+
+- name: Validate Prometheus configuration
+  ansible.builtin.command:
+    argv: [promtool, check, config, /etc/prometheus/prometheus.yml]
+  changed_when: false
+
+- name: Enable monitoring services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - prometheus
+    - prometheus-alertmanager
+    - grafana-server
+    - loki
+    - alloy
+
+- name: Apply monitoring configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Prometheus readiness
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ monitoring_prometheus_port }}/-/ready"
+    status_code: 200
+  changed_when: false
+  retries: 10
+  delay: 3
+  register: prometheus_health
+  until: prometheus_health.status == 200
+
+- name: Verify Grafana health
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ monitoring_grafana_port }}/api/health"
+    status_code: 200
+  changed_when: false
+  retries: 10
+  delay: 3
+  register: grafana_health
+  until: grafana_health.status == 200
+
+- name: Verify Loki readiness over private TLS
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --resolve
+      - "{{ tailscale_dns_name }}:{{ monitoring_loki_port }}:{{ azure_private_ip }}"
+      - "https://{{ tailscale_dns_name }}:{{ monitoring_loki_port }}/ready"
+  changed_when: false
+  retries: 10
+  delay: 3
+  register: loki_health
+  until: loki_health.status == 200
