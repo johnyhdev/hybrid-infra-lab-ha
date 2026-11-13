@@ -12,6 +12,17 @@ data "azurerm_user_assigned_identity" "workload" {
   resource_group_name = data.azurerm_resource_group.main.name
 }
 
+resource "azurerm_user_assigned_identity" "postgres_backup" {
+  name                = "id-postgres-backup-ha"
+  location            = data.azurerm_resource_group.main.location
+  resource_group_name = data.azurerm_resource_group.main.name
+
+  tags = {
+    managed_by = "terraform"
+    role       = "postgres-backup-writer"
+  }
+}
+
 data "azurerm_key_vault" "workload_secrets" {
   name                = var.key_vault_name
   resource_group_name = data.azurerm_resource_group.main.name
@@ -45,12 +56,39 @@ resource "azurerm_storage_account" "loki" {
     managed_by = "terraform"
     role       = "loki-storage"
   }
+
+  blob_properties {
+    delete_retention_policy {
+      days = 7
+    }
+
+    container_delete_retention_policy {
+      days = 7
+    }
+  }
+
 }
 
-# 2. Liên kết Key Vault Key với Storage Account để mã hóa CMK (Sử dụng cú pháp chuẩn mới)
+resource "azurerm_storage_account_queue_properties" "loki" {
+  storage_account_id = azurerm_storage_account.loki.id
+
+  logging {
+    delete                = true
+    read                  = true
+    write                 = true
+    version               = "1.0"
+    retention_policy_days = 7
+  }
+}
+
+# Đảm bảo phân quyền RBAC được áp dụng xong trước khi gán Customer Managed Key vào Storage Account
 resource "azurerm_storage_account_customer_managed_key" "loki_cmk" {
   storage_account_id = azurerm_storage_account.loki.id
-  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id # Dùng ID đầy đủ của Key
+  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id
+
+  depends_on = [
+    azurerm_role_assignment.storage_cmk_encryption
+  ]
 }
 
 resource "azurerm_storage_management_policy" "loki_cleanup" {
@@ -71,6 +109,22 @@ resource "azurerm_storage_management_policy" "loki_cleanup" {
       }
     }
   }
+
+  rule {
+    name    = "delete-postgres-backups-after-retention-window"
+    enabled = true
+
+    filters {
+      prefix_match = ["postgres-backups/"]
+      blob_types   = ["blockBlob"]
+    }
+
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = var.postgres_backup_blob_retention_days
+      }
+    }
+  }
 }
 
 resource "azurerm_storage_container" "loki" {
@@ -85,6 +139,12 @@ resource "azurerm_storage_container" "recovery" {
   container_access_type = "private"
 }
 
+resource "azurerm_storage_container" "postgres_backups" {
+  name                  = "postgres-backups"
+  storage_account_id    = azurerm_storage_account.loki.id
+  container_access_type = "private"
+}
+
 resource "azurerm_role_assignment" "cm_loki_blob" {
   scope                = azurerm_storage_container.loki.id
   role_definition_name = "Storage Blob Data Contributor"
@@ -95,6 +155,12 @@ resource "azurerm_role_assignment" "cm_recovery_blob" {
   scope                = azurerm_storage_container.recovery.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = data.azurerm_user_assigned_identity.cm.principal_id
+}
+
+resource "azurerm_role_assignment" "workload_postgres_backup_blob" {
+  scope                = azurerm_storage_container.postgres_backups.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.postgres_backup.principal_id
 }
 
 resource "terraform_data" "topology_guard" {
@@ -121,8 +187,10 @@ resource "terraform_data" "topology_guard" {
     }
 
     precondition {
-      condition     = length([for vm in values(var.workload_vms) : vm if vm.database]) == 1
-      error_message = "Exactly one workload VM must be designated as the single PostgreSQL host."
+      condition = length([for vm in values(var.workload_vms) : vm if vm.database_cluster_member]) == 3 && length(distinct([
+        for vm in values(var.workload_vms) : vm.zone if vm.database_cluster_member
+      ])) == 3
+      error_message = "PostgreSQL HA requires exactly three cluster-member VMs distributed across three distinct zones."
     }
   }
 }
@@ -151,12 +219,3 @@ resource "azurerm_role_assignment" "storage_cmk_encryption" {
   principal_id         = azurerm_storage_account.loki.identity[0].principal_id
 }
 
-# Đảm bảo phân quyền RBAC được áp dụng xong trước khi gán Customer Managed Key vào Storage Account
-resource "azurerm_storage_account_customer_managed_key" "loki_cmk" {
-  storage_account_id = azurerm_storage_account.loki.id
-  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id
-
-  depends_on = [
-    azurerm_role_assignment.storage_cmk_encryption
-  ]
-}

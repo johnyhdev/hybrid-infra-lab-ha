@@ -1,0 +1,32 @@
+{
+  "key_vault_uri": {{ postgresql_key_vault_uri | to_json }},
+  "managed_identity_client_id": {{ workload_managed_identity_client_id | default('REPLACE_WITH_WORKLOAD_MANAGED_IDENTITY_CLIENT_ID') | to_json }},
+  "secret_names": {{ postgresql_secret_names | to_json }},
+  "cluster_name": {{ postgresql_cluster_name | to_json }},
+  "node_name": {{ inventory_hostname | to_json }},
+  "dns_name": {{ tailscale_dns_name | to_json }},
+  "listen_address": {{ ansible_host | to_json }},
+  "database_subnet_cidr": {{ tailscale_ipv4_cidr | to_json }},
+  "members": [
+{% for host in groups['database'] %}
+    {"name": {{ host | to_json }}, "dns_name": {{ hostvars[host].tailscale_dns_name | to_json }}, "address": {{ hostvars[host].ansible_host | to_json }}}{% if not loop.last %},{% endif %}
+{% endfor %}
+  ],
+  "postgresql_port": {{ postgresql_port | int }},
+  "patroni_api_port": {{ postgresql_patroni_api_port | int }},
+  "etcd_client_port": {{ postgresql_etcd_client_port | int }},
+  "etcd_peer_port": {{ postgresql_etcd_peer_port | int }},
+  "haproxy_port": {{ postgresql_haproxy_port | int }},
+  "postgres_bin_dir": "/usr/lib/postgresql/{{ postgresql_major }}/bin",
+  "data_directory": {{ postgresql_data_directory | default((postgresql_data_disk_mount ~ '/postgresql/' ~ postgresql_major ~ '/main') if (data_disk_size_gb | default(0) | int > 0) else ('/var/lib/postgresql/' ~ postgresql_major ~ '/main')) | to_json }},
+  "archive_timeout": {{ postgresql_archive_timeout | to_json }},
+  "database": {{ postgresql_database_name | to_json }},
+  "app_user": {{ postgresql_app_user | to_json }},
+  "backup_user": {{ postgresql_backup_user | to_json }},
+  "require_watchdog": {{ postgresql_require_watchdog | bool | to_json }},
+  "backup_temp_dir": {{ postgresql_backup_temp_dir | to_json }},
+  "storage_account": {{ loki_storage_account_name | to_json }},
+  "backup_container": {{ postgresql_backup_container | to_json }},
+  "backup_managed_identity_client_id": {{ postgresql_backup_managed_identity_client_id | to_json }},
+  "backup_retention_days": {{ postgresql_backup_retention_days | int }}
+}

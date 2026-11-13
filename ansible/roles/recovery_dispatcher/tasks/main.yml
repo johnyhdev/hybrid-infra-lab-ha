@@ -96,8 +96,7 @@
   loop:
     - recovery-restart-nginx
     - recovery-restart-cloudflared
-    - recovery-restart-node-exporter
-    - recovery-restart-postgresql
+    - recovery-restart-alloy
     - recovery-stop-cpu-test
 
 - name: Install least-privilege dispatcher sudoers rules

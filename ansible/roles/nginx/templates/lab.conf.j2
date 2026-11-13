@@ -1,9 +1,8 @@
-{% set workload_pool = (cloudflare_tunnel_pools | selectattr('members', 'contains', inventory_hostname) | list | first) %}
-{% set workload_backend_hosts = (cloudflare_tunnel_pools | selectattr('service_group', 'equalto', workload_pool.service_group) | map(attribute='members') | flatten | unique | list) %}
+{% set workload_backend_hosts = groups['workload'] | sort %}
 upstream workload_apps {
     least_conn;
 {% for host in workload_backend_hosts %}
-    server {{ hostvars[host].workload_private_ip }}:{{ workload_web_port }} max_fails=2 fail_timeout=5s;
+    server {{ hostvars[host].workload_private_ip }}:{{ workload_web_port }} max_fails=1 fail_timeout=10s;
 {% endfor %}
     keepalive 32;
 }
@@ -45,6 +44,27 @@ server {
     listen {{ workload_proxy_port }};
     server_name _;
 
+    location = /livez {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location = /readyz {
+        proxy_pass https://workload_apps/healthz;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $backend_tls_name;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 4;
+        proxy_connect_timeout {{ workload_proxy_connect_timeout }};
+        proxy_read_timeout {{ workload_proxy_read_timeout }};
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries {{ workload_backend_hosts | length }};
+        proxy_next_upstream_timeout {{ workload_proxy_next_upstream_timeout }};
+    }
+
     location = /healthz {
         proxy_pass https://127.0.0.1:{{ workload_web_port }}/healthz;
         proxy_ssl_server_name on;
@@ -73,6 +93,7 @@ server {
         proxy_read_timeout {{ workload_proxy_read_timeout }};
         proxy_send_timeout {{ workload_proxy_send_timeout }};
         proxy_next_upstream error timeout http_502 http_503 http_504;
-        proxy_next_upstream_tries {{ workload_proxy_max_tries }};
+        proxy_next_upstream_tries {{ workload_backend_hosts | length }};
+        proxy_next_upstream_timeout {{ workload_proxy_next_upstream_timeout }};
     }
 }

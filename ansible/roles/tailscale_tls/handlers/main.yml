@@ -5,7 +5,3 @@
     state: restarted
   when: tailscale_tls_restart_nginx | default(true) | bool
 
-- name: Restart Node Exporter
-  ansible.builtin.systemd:
-    name: node_exporter
-    state: restarted

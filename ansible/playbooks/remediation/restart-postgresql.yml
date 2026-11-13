@@ -1,28 +1,35 @@
 ---
-- name: Recover the single designated PostgreSQL service only if unavailable
+- name: Recover one Patroni PostgreSQL HA member only when requested by an operator
   hosts: database
   become: true
   serial: 1
 
   tasks:
-    - name: Check PostgreSQL readiness
+    - name: Check local HAProxy write endpoint
       ansible.builtin.command:
-        argv: [pg_isready]
+        argv: [pg_isready, -h, 127.0.0.1, -p, "{{ postgresql_haproxy_port }}"]
       register: postgres_probe
       failed_when: false
       changed_when: false
 
-    - name: Restart PostgreSQL only when readiness fails
+    - name: Restart Patroni manager only when the local endpoint is unavailable
       ansible.builtin.systemd:
-        name: postgresql
+        name: patroni
         state: restarted
       when: postgres_probe.rc != 0
 
-    - name: Verify PostgreSQL recovery
+    - name: Verify local HAProxy endpoint recovery
       ansible.builtin.command:
-        argv: [pg_isready]
+        argv: [pg_isready, -h, 127.0.0.1, -p, "{{ postgresql_haproxy_port }}"]
       register: postgres_recovery
       retries: 10
       delay: 3
       until: postgres_recovery.rc == 0
+      changed_when: false
+
+    - name: Verify single-primary and replica cluster invariant
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, /usr/local/sbin/phase8-postgresql-verify-cluster]
+      delegate_to: "{{ groups['database'][0] }}"
+      run_once: true
       changed_when: false

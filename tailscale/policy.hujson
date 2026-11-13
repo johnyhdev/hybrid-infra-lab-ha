@@ -31,9 +31,19 @@
       "ip": ["tcp:22"]
     },
     {
+      "src": ["tag:workload"],
+      "dst": ["tag:cm"],
+      "ip": ["tcp:3100", "tcp:9090"]
+    },
+    {
+      "src": ["tag:workload"],
+      "dst": ["tag:workload"],
+      "ip": ["tcp:5432", "tcp:2379", "tcp:2380", "tcp:8008"]
+    },
+    {
       "src": ["tag:cm"],
       "dst": ["tag:cm"],
-      "ip": ["tcp:7946", "udp:7946", "tcp:9094", "udp:9094", "tcp:9095"]
+      "ip": ["tcp:3100", "tcp:7946", "udp:7946", "tcp:9094", "udp:9094", "tcp:9095"]
     },
     {
       "src": ["tag:cm"],

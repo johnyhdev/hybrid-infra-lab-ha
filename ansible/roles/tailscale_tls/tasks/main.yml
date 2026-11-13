@@ -13,16 +13,15 @@
     state: present
   notify: Restart Nginx
 
-- name: Ensure Node Exporter service user can read TLS certificate
+- name: Ensure Prometheus service user can read TLS certificate
   ansible.builtin.user:
-    name: node_exporter
+    name: prometheus
     system: true
     shell: /usr/sbin/nologin
     create_home: false
     groups: phase8-tls
     append: true
     state: present
-  notify: Restart Node Exporter
 
 - name: Create private TLS directory
   ansible.builtin.file:
@@ -61,7 +60,6 @@
   changed_when: "'Issued or renewed' in certificate_refresh.stdout"
   notify:
     - Restart Nginx
-    - Restart Node Exporter
 
 - name: Enable automatic certificate renewal
   ansible.builtin.systemd:

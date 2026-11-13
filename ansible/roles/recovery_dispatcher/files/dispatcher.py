@@ -28,9 +28,7 @@ RUN_TIMEOUT_SECONDS = 300
 
 ACTIONS = {
     "NginxUnavailable": ("restart_nginx", "/usr/local/sbin/phase8-recovery-restart-nginx", "workload"),
-    "CloudflaredUnavailable": ("restart_cloudflared", "/usr/local/sbin/phase8-recovery-restart-cloudflared", "workload"),
-    "NodeExporterDown": ("restart_node_exporter", "/usr/local/sbin/phase8-recovery-restart-node-exporter", "control:workload"),
-    "PostgreSQLUnavailable": ("restart_postgresql", "/usr/local/sbin/phase8-recovery-restart-postgresql", "database"),
+    "AlloyAgentMissing": ("restart_alloy", "/usr/local/sbin/phase8-recovery-restart-alloy", "control:workload"),
     "WorkloadCPUTestCritical": ("stop_cpu_test_service", "/usr/local/sbin/phase8-recovery-stop-cpu-test", "workload"),
 }
 INSTANCE_RE = re.compile(r"^vm-(?:cm|workload)-[a-z0-9-]{1,48}$")

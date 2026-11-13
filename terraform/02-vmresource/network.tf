@@ -156,20 +156,6 @@ resource "azurerm_network_security_rule" "cm_tailscale_udp" {
   network_security_group_name = azurerm_network_security_group.cm.name
 }
 
-resource "azurerm_network_security_rule" "cm_node_exporter_from_control" {
-  name                        = "allow-node-exporter-from-control"
-  priority                    = 120
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "9100"
-  source_address_prefix       = var.control_plane_subnet_cidr
-  destination_address_prefix  = "*"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.cm.name
-}
-
 resource "azurerm_network_security_rule" "cm_storage_https_from_control" {
   name                        = "allow-private-storage-https-from-control"
   priority                    = 125
@@ -179,34 +165,6 @@ resource "azurerm_network_security_rule" "cm_storage_https_from_control" {
   source_port_range           = "*"
   destination_port_range      = "443"
   source_address_prefix       = var.control_plane_subnet_cidr
-  destination_address_prefix  = "*"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.cm.name
-}
-
-resource "azurerm_network_security_rule" "cm_loki_from_vnet" {
-  name                        = "allow-loki-from-vnet"
-  priority                    = 140
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "3100"
-  source_address_prefix       = var.control_plane_subnet_cidr
-  destination_address_prefix  = "*"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.cm.name
-}
-
-resource "azurerm_network_security_rule" "cm_loki_from_workload" {
-  name                        = "allow-loki-from-workload"
-  priority                    = 141
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "3100"
-  source_address_prefix       = var.workload_plane_subnet_cidr
   destination_address_prefix  = "*"
   resource_group_name         = data.azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.cm.name
@@ -284,20 +242,6 @@ resource "azurerm_network_security_rule" "workload_lb_probe" {
   network_security_group_name = azurerm_network_security_group.workload.name
 }
 
-resource "azurerm_network_security_rule" "workload_node_exporter_from_automation" {
-  name                        = "allow-node-exporter-from-automation"
-  priority                    = 130
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "9100"
-  source_address_prefix       = var.control_plane_subnet_cidr
-  destination_address_prefix  = "*"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.workload.name
-}
-
 resource "azurerm_network_security_rule" "workload_keyvault_https" {
   name                        = "allow-keyvault-private-https"
   priority                    = 140
@@ -334,6 +278,20 @@ resource "azurerm_network_security_rule" "workload_postgresql_private" {
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "5432"
+  source_address_prefix       = var.workload_plane_subnet_cidr
+  destination_address_prefix  = "*"
+  resource_group_name         = data.azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.workload.name
+}
+
+resource "azurerm_network_security_rule" "workload_postgresql_ha_cluster" {
+  name                        = "allow-postgresql-ha-cluster-traffic"
+  priority                    = 151
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_ranges     = ["2379", "2380", "8008"]
   source_address_prefix       = var.workload_plane_subnet_cidr
   destination_address_prefix  = "*"
   resource_group_name         = data.azurerm_resource_group.main.name

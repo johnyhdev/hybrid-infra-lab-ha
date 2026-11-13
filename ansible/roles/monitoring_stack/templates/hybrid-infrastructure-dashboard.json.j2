@@ -14,7 +14,7 @@
       "title": "Node availability",
       "gridPos": {"h": 6, "w": 12, "x": 0, "y": 0},
       "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
-      "targets": [{"expr": "sum(up{job=\"node_exporter\"})", "refId": "A"}]
+      "targets": [{"expr": "sum(up{job=\"alloy_system\"})", "refId": "A"}]
     },
     {
       "id": 2,
@@ -22,7 +22,7 @@
       "title": "CPU busy percent",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
-      "targets": [{"expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job=\"node_exporter\",mode=\"idle\"}[5m])))", "refId": "A"}]
+      "targets": [{"expr": "100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job=\"alloy_system\",mode=\"idle\"}[5m])))", "refId": "A"}]
     },
     {
       "id": 3,
@@ -30,7 +30,7 @@
       "title": "Memory used percent",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
       "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
-      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node_exporter\"} / node_memory_MemTotal_bytes{job=\"node_exporter\"})", "refId": "A"}]
+      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"alloy_system\"} / node_memory_MemTotal_bytes{job=\"alloy_system\"})", "refId": "A"}]
     },
     {
       "id": 4,
@@ -38,7 +38,7 @@
       "title": "Filesystem used percent",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
-      "targets": [{"expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node_exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{job=\"node_exporter\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"})", "refId": "A"}]
+      "targets": [{"expr": "100 * (1 - node_filesystem_avail_bytes{job=\"alloy_system\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{job=\"alloy_system\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs\"})", "refId": "A"}]
     },
     {
       "id": 5,
@@ -46,7 +46,7 @@
       "title": "Network receive bytes/sec",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
       "datasource": {"type": "prometheus", "uid": "phase8-prometheus"},
-      "targets": [{"expr": "sum by(instance) (rate(node_network_receive_bytes_total{job=\"node_exporter\",device!~\"lo\"}[5m]))", "refId": "A"}]
+      "targets": [{"expr": "sum by(instance) (rate(node_network_receive_bytes_total{job=\"alloy_system\",device!~\"lo\"}[5m]))", "refId": "A"}]
     },
     {
       "id": 6,

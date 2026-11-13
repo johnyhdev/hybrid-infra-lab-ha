@@ -4,9 +4,15 @@
   become: true
   tasks:
     - name: Check Prometheus readiness on tailnet interface
-      ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ monitoring_prometheus_port }}/-/ready"
-        status_code: 200
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --resolve
+          - "{{ tailscale_dns_name }}:{{ monitoring_prometheus_port }}:{{ ansible_host }}"
+          - "https://{{ tailscale_dns_name }}:{{ monitoring_prometheus_port }}/-/ready"
       changed_when: false
 
     - name: Check Alertmanager readiness on tailnet interface

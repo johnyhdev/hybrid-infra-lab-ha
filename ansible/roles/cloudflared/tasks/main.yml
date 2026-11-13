@@ -2,37 +2,19 @@
 - name: Validate Cloudflare Tunnel Pool capacities and workload membership
   ansible.builtin.assert:
     that:
-      - cloudflare_tunnel_pools | length > 0
-      - >-
-        (cloudflare_tunnel_pools | map(attribute='pool_name') | list | unique | length)
-        == (cloudflare_tunnel_pools | length)
-      - >-
-        (cloudflare_tunnel_pools | map(attribute='tunnel_id') | list | unique | length)
-        == (cloudflare_tunnel_pools | length)
-      - >-
-        (cloudflare_tunnel_pools | map(attribute='members') | flatten | length)
-        ==
-        (cloudflare_tunnel_pools | map(attribute='members') | flatten | unique | length)
-      - >-
-        (cloudflare_tunnel_pools | map(attribute='members') | flatten | sort)
-        == (groups['workload'] | sort)
-      - item.max_replicas | int <= 25
-      - item.desired_replicas | int >= 1
-      - item.desired_replicas | int <= item.max_replicas | int
-      - item.members | length == item.desired_replicas | int
-      - item.tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+      - cloudflare_tunnel_pools | length == 1
+      - groups['cloudflare_ingress'] | length >= 1
+      - groups['cloudflare_ingress'] | length <= (cloudflare_tunnel_pools[0].max_replicas | int)
+      - cloudflare_tunnel_pools[0].max_replicas | int <= 25
+      - cloudflare_tunnel_pools[0].tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
     fail_msg: >-
-      Tunnel Pools must partition all workload nodes exactly once, match each
-      desired replica count, and remain within the verified 25-connector limit.
-  loop: "{{ cloudflare_tunnel_pools }}"
+      Configure exactly one Tunnel with at least one currently online ingress
+      connector, and tag 2-25 intended replicas using Terraform.
   run_once: true
 
 - name: Validate Cloudflare pool assignment for each workload
   ansible.builtin.set_fact:
-    cloudflare_pool_matches: >-
-      {{ cloudflare_tunnel_pools
-         | selectattr('members', 'contains', inventory_hostname)
-         | list }}
+    cloudflare_pool_matches: "{{ cloudflare_tunnel_pools if inventory_hostname in groups['cloudflare_ingress'] else [] }}"
 
 - name: Require exactly one Tunnel Pool per workload
   ansible.builtin.assert:
@@ -40,15 +22,15 @@
       - cloudflare_pool_matches | length == 1
       - cloudflare_pool_matches[0].tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
       - cloudflare_pool_matches[0].max_replicas | int <= 25
-      - cloudflare_pool_matches[0].members | length <= cloudflare_pool_matches[0].max_replicas | int
+      - groups['cloudflare_ingress'] | length <= cloudflare_pool_matches[0].max_replicas | int
       - cloudflare_key_vault_uri is match('^https://[A-Za-z0-9-]+[.]vault[.]azure[.]net$')
       - cloudflare_account_id is match('^[0-9a-fA-F]{32}$')
       - "'REPLACE_' not in cloudflare_api_token_secret_name"
       - "'REPLACE_' not in workload_managed_identity_client_id"
     fail_msg: >-
-      Set a valid Tunnel Pool, account, and Key Vault configuration in
-      group_vars/workload/cloudflare.yml; each workload must belong to exactly one
-      pool and pool capacity must not exceed the verified cap.
+      Set a valid Tunnel ingress pool, account, and Key Vault configuration in
+      group_vars/workload/cloudflare.yml and tag the intended connector VMs with
+      cloudflare_ingress=true; pool capacity must not exceed the configured cap.
 
 - name: Require a pinned cloudflared package version
   ansible.builtin.assert:
@@ -168,28 +150,6 @@
       dest: /etc/systemd/system/cloudflared-refresh.timer
   notify: Reload systemd manager
 
-- name: Install workload health probe script
-  ansible.builtin.template:
-    src: workload-health-probe.sh.j2
-    dest: /usr/local/sbin/phase8-workload-health-probe
-    owner: root
-    group: root
-    mode: "0750"
-
-- name: Install workload health probe service and timer
-  ansible.builtin.template:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
-    owner: root
-    group: root
-    mode: "0644"
-  loop:
-    - src: health-probe.service.j2
-      dest: /etc/systemd/system/phase8-workload-health-probe.service
-    - src: health-probe.timer.j2
-      dest: /etc/systemd/system/phase8-workload-health-probe.timer
-  notify: Reload systemd manager
-
 - name: Create Cloudflared refresh timer drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/cloudflared-refresh.timer.d
@@ -221,13 +181,6 @@
     name: cloudflared-refresh.timer
     enabled: true
     state: started
-
-- name: Enable periodic workload health probes
-  ansible.builtin.systemd:
-    name: phase8-workload-health-probe.timer
-    enabled: true
-    state: started
-    daemon_reload: true
 
 - name: Apply changed connector configuration
   ansible.builtin.meta: flush_handlers

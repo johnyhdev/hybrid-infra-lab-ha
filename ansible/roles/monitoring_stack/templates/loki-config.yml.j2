@@ -1,7 +1,7 @@
 auth_enabled: false
 
 server:
-  http_listen_address: "{{ azure_private_ip }}"
+  http_listen_address: "{{ ansible_host }}"
   http_listen_port: {{ monitoring_loki_port }}
   http_tls_config:
     cert_file: /etc/phase8/tls/tls.crt
@@ -11,7 +11,7 @@ server:
 
 common:
   path_prefix: /var/lib/loki
-  replication_factor: {{ monitoring_loki_replication_factor | int }}
+  replication_factor: 1
   ring:
     instance_addr: "{{ ansible_host }}"
     kvstore:
@@ -22,15 +22,15 @@ memberlist:
   bind_port: 7946
   join_members:
 {% for peer in groups['control'] if peer != inventory_hostname %}
-    - "{{ hostvars[peer].ansible_host }}:7946"
+    - "{{ hostvars[peer].tailscale_dns_name }}:7946"
 {% endfor %}
 
 ingester:
   wal:
     enabled: true
     dir: /var/lib/loki/wal
-  chunk_idle_period: 1m
-  max_chunk_age: 5m
+  chunk_idle_period: 30m
+  max_chunk_age: 1h
   chunk_retain_period: 30s
 
 schema_config:
@@ -44,9 +44,6 @@ schema_config:
         period: 24h
 
 storage_config:
-  filesystem:
-    chunks_directory: /var/lib/loki/chunks
-    rules_directory: /var/lib/loki/rules
   azure:
     account_name: "{{ loki_storage_account_name }}"
     container_name: "{{ loki_storage_container }}"

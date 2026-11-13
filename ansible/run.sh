@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -26,7 +25,7 @@ until ansible workload \
   -m ping -o >/dev/null 2>&1; do
 
   RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+  if [[ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]]; then
     echo "ERROR: Workload nodes are not reachable after $((MAX_RETRIES * 10)) seconds."
     exit 1
   fi

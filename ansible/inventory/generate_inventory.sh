@@ -48,11 +48,15 @@ workload_identity_client_id = subprocess.check_output(
     ["az", "identity", "show", "--resource-group", resource_group, "--name", workload_identity_name, "--query", "clientId", "--output", "tsv"],
     text=True,
 ).strip()
+postgres_backup_identity_client_id = subprocess.check_output(
+    ["az", "identity", "show", "--resource-group", resource_group, "--name", "id-postgres-backup-ha", "--query", "clientId", "--output", "tsv"],
+    text=True,
+).strip()
 azure_vms = json.loads(
     subprocess.check_output(
         [
             "az", "vm", "list", "--show-details", "--resource-group", resource_group,
-            "--query", "[].{name:name, privateIps:privateIps, database:tags.database, dataDiskSizeGb:tags.data_disk_size_gb}", "--output", "json",
+            "--query", "[].{name:name, privateIps:privateIps, database:tags.database, cloudflareIngress:tags.cloudflare_ingress, dataDiskSizeGb:tags.data_disk_size_gb}", "--output", "json",
         ],
         text=True,
     )
@@ -64,12 +68,21 @@ private_ips = {
 database_nodes = {
     vm["name"].lower()
     for vm in azure_vms
-    if vm.get("database") == "primary"
+    if vm.get("database") == "cluster-member"
 }
+if len(database_nodes) != 3:
+    raise SystemExit("Azure configuration must tag exactly three workload VMs database=cluster-member")
 data_disk_sizes = {
     vm["name"].lower(): int(vm.get("dataDiskSizeGb") or 0)
     for vm in azure_vms
 }
+ingress_nodes = {
+    vm["name"].lower()
+    for vm in azure_vms
+    if str(vm.get("cloudflareIngress", "false")).lower() == "true"
+}
+if len(ingress_nodes) < 2 or len(ingress_nodes) > 25:
+    raise SystemExit("Azure configuration must tag 2-25 workload VMs with cloudflare_ingress=true")
 local_name = socket.gethostname().split(".", 1)[0].lower()
 nodes = [status.get("Self", {})]
 peers = status.get("Peer", {})
@@ -78,6 +91,7 @@ nodes.extend(peers.values() if isinstance(peers, dict) else peers)
 control = []
 workload = []
 database = []
+ingress = []
 for node in nodes:
     if node.get("Online") is False:
         continue
@@ -96,9 +110,13 @@ for node in nodes:
     (control if group == "control" else workload).append(item)
     if group == "workload" and alias in database_nodes:
         database.append(item)
+    if group == "workload" and alias in ingress_nodes:
+        ingress.append(item)
 
-if not control or not workload or len(database) != 1:
-    raise SystemExit("Tailscale inventory must contain online tag:cm and tag:workload nodes")
+if not control or not workload or len(database) != 3:
+    raise SystemExit("All three PostgreSQL HA members and online tag:cm/tag:workload nodes must be in Tailscale inventory")
+if not ingress:
+    raise SystemExit("No configured Cloudflare ingress workload VM is online")
 
 lines = [
     "all:",
@@ -108,9 +126,10 @@ lines = [
     "    ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new'",
     f"    monitoring_loki_uai_client_id: {cm_identity_client_id}",
     f"    workload_managed_identity_client_id: {workload_identity_client_id}",
+    f"    postgresql_backup_managed_identity_client_id: {postgres_backup_identity_client_id}",
     "  children:",
 ]
-for group, hosts in (("control", control), ("workload", workload), ("database", database)):
+for group, hosts in (("control", control), ("workload", workload), ("database", database), ("cloudflare_ingress", ingress)):
     lines.extend((f"    {group}:", "      hosts:"))
     for alias, address, is_local, is_database in sorted(hosts):
         lines.append(f"        {alias}:")

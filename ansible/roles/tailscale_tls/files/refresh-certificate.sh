@@ -23,6 +23,7 @@ chmod 0640 "$key"
 echo "Issued or renewed TLS certificate for $dns_name"
 
 systemctl try-reload-or-restart nginx.service >/dev/null 2>&1 || true
-systemctl try-restart node_exporter.service >/dev/null 2>&1 || true
-systemctl try-restart loki.service >/dev/null 2>&1 || true
-systemctl try-restart postgresql.service >/dev/null 2>&1 || true
+systemctl try-restart prometheus.service >/dev/null 2>&1 || true
+# Patroni owns PostgreSQL lifecycle. Certificate rotation for PostgreSQL, etcd,
+# and HAProxy requires a coordinated, quorum-aware maintenance procedure; do not
+# restart database services independently from this per-node renewal timer.

@@ -50,8 +50,10 @@ resource "azurerm_user_assigned_identity" "workload" {
 
 data "azurerm_client_config" "current" {}
 
-# checkov:skip=CKV2_AZURE_32: Private Endpoint is managed in the downstream network/vm layer to respect layer boundaries.
+
 resource "azurerm_key_vault" "workload_secrets" {
+  # checkov:skip=CKV2_AZURE_32: Private Endpoint for Key Vault is configured in 02-vmresource (network.tf)
+
   name                          = var.key_vault_name
   location                      = azurerm_resource_group.main.location
   resource_group_name           = azurerm_resource_group.main.name
@@ -80,10 +82,13 @@ resource "azurerm_role_assignment" "workload_keyvault_secret_reader" {
 }
 
 resource "azurerm_key_vault_key" "loki_encryption_key" {
-  name         = "loki-encryption-key"
-  key_vault_id = azurerm_key_vault.workload_secrets.id
-  key_type     = "RSA"
-  key_size     = 4096
+  #checkov:skip=CKV_AZURE_112: Software-protected key is acceptable for this lab baseline; HSM is not a compliance requirement.
+
+  name            = "loki-encryption-key"
+  key_vault_id    = azurerm_key_vault.workload_secrets.id
+  key_type        = "RSA"
+  key_size        = 4096
+  expiration_date = "2027-11-11T00:00:00Z" # <- remove to view CKV_AZURE_40 None expiration date warning
 
   key_opts = [
     "decrypt",

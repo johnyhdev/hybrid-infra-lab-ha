@@ -62,6 +62,7 @@ jobs:
       - name: Run ansible-lint
         env:
           ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles:${{ github.workspace }}/ansible/playbooks/roles
+          ANSIBLE_INVENTORY: ${{ github.workspace }}/ansible/inventory/hosts.yml
         run: |
           ansible-lint ansible/
 

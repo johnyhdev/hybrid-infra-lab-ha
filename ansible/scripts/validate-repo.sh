@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ANSIBLE_DIR="$ROOT/ansible"
 export ANSIBLE_ROLES_PATH="$ANSIBLE_DIR/roles:$ANSIBLE_DIR/playbooks/roles"
+export ANSIBLE_INVENTORY="$ANSIBLE_DIR/inventory/hosts.yml"
 
 for command in terraform ansible-playbook ansible-lint python3; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 2; }
@@ -19,9 +20,10 @@ terraform -chdir="$ROOT/terraform/02-vmresource" validate
 ansible-lint "$ANSIBLE_DIR"
 for playbook in \
   site.yml baseline.yml application.yml monitoring.yml monitoring-health.yml \
+  workload-prepare.yml postgresql-ha.yml application-services.yml \
   cpu-test-setup.yml cpu-test-start.yml drift-check.yml \
   remediation/restart-nginx.yml remediation/restart-cloudflared.yml \
-  remediation/restart-node-exporter.yml remediation/restart-postgresql.yml \
+  remediation/restart-alloy.yml remediation/restart-postgresql.yml \
   remediation/stop-cpu-test.yml; do
   if [[ -f "$ANSIBLE_DIR/playbooks/$playbook" ]]; then
     ansible-playbook -i "$ANSIBLE_DIR/inventory/hosts.yml" \
@@ -41,6 +43,8 @@ done < <(find "$ROOT/ansible" "$ROOT/bootstrap" -type f -name '*.sh' -print0)
 python3 -m compileall -q \
   "$ANSIBLE_DIR/roles/cloudflared/files" \
   "$ANSIBLE_DIR/roles/recovery_dispatcher/files" \
+  "$ANSIBLE_DIR/roles/postgresql_ha/files" \
+  "$ANSIBLE_DIR/roles/sample_app/files" \
   "$ANSIBLE_DIR/tests"
 python3 -m unittest discover -s "$ANSIBLE_DIR/tests" -v
 

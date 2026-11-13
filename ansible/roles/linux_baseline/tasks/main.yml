@@ -108,13 +108,6 @@
     src: 168.63.129.16
   when: enable_load_balancer | default(false) | bool
 
-- name: Allow Node Exporter (9100) in UFW from Control Subnet
-  community.general.ufw:
-    rule: allow
-    port: '9100'
-    proto: tcp
-    src: "{{ control_plane_subnet_cidr | default('10.20.1.0/24') }}"
-
 - name: Enable UFW service
   community.general.ufw:
     state: enabled

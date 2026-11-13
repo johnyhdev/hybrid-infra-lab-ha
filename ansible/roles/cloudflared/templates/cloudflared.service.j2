@@ -1,7 +1,7 @@
 [Unit]
 Description=Cloudflare Tunnel connector for {{ cloudflare_pool_matches[0].pool_name }}
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target nginx.service
+After=network-online.target nginx.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

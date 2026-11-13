@@ -1,0 +1,27 @@
+[Unit]
+Description=Patroni PostgreSQL HA manager ({{ postgresql_cluster_name }})
+Documentation=https://patroni.readthedocs.io/
+After=network-online.target etcd.service
+Wants=network-online.target etcd.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+SupplementaryGroups=phase8-tls{% if postgresql_require_watchdog | bool %} watchdog{% endif %}
+Environment=MALLOC_ARENA_MAX=1
+ExecStart=/opt/phase8-patroni/bin/patroni /etc/patroni/patroni.yml
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120s
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/postgresql /mnt/phase8-data /run/postgresql /var/log/postgresql
+
+[Install]
+WantedBy=multi-user.target

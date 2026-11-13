@@ -5,7 +5,10 @@ datasources:
     uid: phase8-prometheus
     type: prometheus
     access: proxy
-    url: "http://{{ ansible_host }}:{{ monitoring_prometheus_port }}"
+    url: "https://127.0.0.1:{{ monitoring_prometheus_port }}"
+    jsonData:
+      tlsSkipVerify: false
+      serverName: "{{ tailscale_dns_name }}"
     isDefault: true
     editable: false
 

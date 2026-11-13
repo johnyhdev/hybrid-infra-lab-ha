@@ -1,0 +1,43 @@
+[Unit]
+Description=etcd quorum member for PostgreSQL HA
+Documentation=https://etcd.io/docs/v3.7/
+After=network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=notify
+User=etcd
+Group=etcd
+ExecStart=/usr/local/bin/etcd \
+  --name={{ inventory_hostname }} \
+  --data-dir=/var/lib/etcd \
+  --listen-peer-urls=https://{{ ansible_host }}:{{ postgresql_etcd_peer_port }} \
+  --initial-advertise-peer-urls=https://{{ tailscale_dns_name }}:{{ postgresql_etcd_peer_port }} \
+  --listen-client-urls=https://{{ ansible_host }}:{{ postgresql_etcd_client_port }} \
+  --advertise-client-urls=https://{{ tailscale_dns_name }}:{{ postgresql_etcd_client_port }} \
+  --initial-cluster={% for host in groups['database'] %}{{ host }}=https://{{ hostvars[host].tailscale_dns_name }}:{{ postgresql_etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %} \
+  --initial-cluster-token={{ postgresql_cluster_name }} \
+  --initial-cluster-state=new \
+  --cert-file=/etc/phase8/tls/tls.crt \
+  --key-file=/etc/phase8/tls/tls.key \
+  --trusted-ca-file=/etc/ssl/certs/ca-certificates.crt \
+  --client-cert-auth \
+  --peer-cert-file=/etc/phase8/tls/tls.crt \
+  --peer-key-file=/etc/phase8/tls/tls.key \
+  --peer-trusted-ca-file=/etc/ssl/certs/ca-certificates.crt \
+  --peer-client-cert-auth \
+  --logger=zap \
+  --log-level=info
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/etcd
+
+[Install]
+WantedBy=multi-user.target

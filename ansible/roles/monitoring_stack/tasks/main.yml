@@ -3,13 +3,11 @@
   ansible.builtin.assert:
     that:
       - groups['control'] | length >= 1
-      - monitoring_loki_replication_factor | int >= 1
-      - monitoring_loki_replication_factor | int <= groups['control'] | length
       - loki_storage_account_name is defined
       - "'REPLACE_' not in loki_storage_account_name"
       - monitoring_loki_sha256_arm64 is defined
       - "'REPLACE_' not in monitoring_loki_sha256_arm64"
-    fail_msg: Configure two control nodes and the Loki Storage account output before deployment.
+    fail_msg: Set the Loki Storage Account output and pinned Loki release before deployment.
   run_once: true
 
 - name: Require exact monitoring package versions
@@ -58,6 +56,22 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Add Prometheus to the Tailscale certificate reader group
+  ansible.builtin.user:
+    name: prometheus
+    groups: phase8-tls
+    append: true
+    state: present
+
+- name: Install Prometheus HTTPS web configuration
+  ansible.builtin.template:
+    src: prometheus-web.yml.j2
+    dest: /etc/prometheus/web.yml
+    owner: root
+    group: phase8-tls
+    mode: "0640"
+  notify: Restart Prometheus
+
 - name: Allow monitoring UIs and APIs only over the tailnet interface
   community.general.ufw:
     rule: allow
@@ -69,7 +83,7 @@
     - "{{ monitoring_prometheus_port }}"
     - "{{ monitoring_alertmanager_port }}"
     - "{{ monitoring_grafana_port }}"
-    - "7946"
+    - "{{ monitoring_loki_port }}"
     - "9094"
     - "9095"
 
@@ -81,7 +95,7 @@
     interface: tailscale0
     direction: in
 
-- name: Allow Loki memberlist peer gossip over the tailnet interface
+- name: Allow Loki memberlist UDP traffic over the tailnet interface
   community.general.ufw:
     rule: allow
     port: '7946'
@@ -89,15 +103,13 @@
     interface: tailscale0
     direction: in
 
-- name: Allow private Loki traffic from control and workload subnets
+- name: Allow Loki memberlist TCP traffic over the tailnet interface
   community.general.ufw:
     rule: allow
-    port: "{{ monitoring_loki_port }}"
+    port: '7946'
     proto: tcp
-    src: "{{ item }}"
-  loop:
-    - "{{ control_plane_subnet_cidr }}"
-    - "{{ workload_plane_subnet_cidr }}"
+    interface: tailscale0
+    direction: in
 
 - name: Create Loki service group
   ansible.builtin.group:
@@ -195,7 +207,9 @@
       --storage.tsdb.path=/var/lib/prometheus
       --storage.tsdb.retention.time={{ monitoring_prometheus_retention_time }}
       --storage.tsdb.retention.size={{ monitoring_prometheus_retention_size }}
-      --web.listen-address={{ ansible_host }}:{{ monitoring_prometheus_port }}"
+      --web.listen-address=0.0.0.0:{{ monitoring_prometheus_port }}
+      --web.config.file=/etc/prometheus/web.yml
+      --web.enable-remote-write-receiver"
   notify: Restart Prometheus
 
 - name: Configure Alertmanager command-line arguments
@@ -209,8 +223,8 @@
       --storage.path=/var/lib/alertmanager
       --web.listen-address={{ ansible_host }}:{{ monitoring_alertmanager_port }}
       --cluster.listen-address={{ ansible_host }}:9094
-    {% for peer in groups['control'] if peer != inventory_hostname %}      --cluster.peer={{ hostvars[peer].ansible_host }}:9094
-{% endfor %}      "
+      {% for peer in groups['control'] if peer != inventory_hostname %}      --cluster.peer={{ hostvars[peer].ansible_host }}:9094
+      {% endfor %}      "
   notify: Restart Alertmanager
 
 - name: Install Prometheus configuration

@@ -84,17 +84,19 @@ resource "azurerm_linux_virtual_machine" "workload" {
   identity {
     type = "UserAssigned"
 
-    identity_ids = [
-      data.azurerm_user_assigned_identity.workload.id
-    ]
+    identity_ids = concat(
+      [data.azurerm_user_assigned_identity.workload.id],
+      each.value.database_cluster_member ? [azurerm_user_assigned_identity.postgres_backup.id] : []
+    )
   }
 
   tags = {
-    role              = "workload"
-    database          = each.value.database ? "primary" : "none"
-    data_disk_size_gb = tostring(each.value.data_disk_size_gb)
-    environment       = "lab"
-    managed_by        = "terraform"
+    role               = "workload"
+    database           = each.value.database_cluster_member ? "cluster-member" : "none"
+    cloudflare_ingress = each.value.cloudflare_ingress ? "true" : "false"
+    data_disk_size_gb  = tostring(each.value.data_disk_size_gb)
+    environment        = "lab"
+    managed_by         = "terraform"
   }
 }
 
@@ -104,13 +106,15 @@ resource "azurerm_managed_disk" "workload_data" {
     if vm.data_disk_size_gb > 0
   }
 
-  name                 = "disk-${each.key}-data"
-  location             = data.azurerm_resource_group.main.location
-  resource_group_name  = data.azurerm_resource_group.main.name
-  storage_account_type = "StandardSSD_LRS"
-  create_option        = "Empty"
-  disk_size_gb         = each.value.data_disk_size_gb
-  zone                 = each.value.zone
+  name                   = "disk-${each.key}-data"
+  location               = data.azurerm_resource_group.main.location
+  resource_group_name    = data.azurerm_resource_group.main.name
+  storage_account_type   = "StandardSSD_LRS"
+  create_option          = "Empty"
+  disk_size_gb           = each.value.data_disk_size_gb
+  zone                   = each.value.zone
+  disk_encryption_set_id = var.disk_encryption_set_id
+  network_access_policy  = "DenyAll"
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "workload_data" {

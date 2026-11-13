@@ -1,5 +1,7 @@
 # 🚀 Hybrid Infrastructure Lab (Terraform, Azure, Ansible, GitHub OIDC & Tailscale)
 
+> Coding-agent entrypoint: read [PROJECT-STATUS.md](PROJECT-STATUS.md) for the current source map and implemented-vs-planned status. See [IMPLEMENTATION-DECISIONS.md](IMPLEMENTATION-DECISIONS.md) for approved direction and open tradeoffs.
+
 Welcome to the **Hybrid Infrastructure Lab**!
 
 This repository provides a complete, hands-on blueprint for building a **Zero-Trust, highly secure, and automated hybrid network**. It bridges public cloud resources (Azure) with automated configuration management (Ansible) and modern identity controls (GitHub OIDC & Tailscale Mesh).
@@ -25,7 +27,7 @@ In traditional infrastructure management, engineering teams often face major cha
 ## 🧰 Tech Stack (Matching Modern NetDevOps Roles)
 
 * **Infrastructure as Code (IaC):** Terraform (`>= 1.6.0`) with remote Azure Blob backend.
-* **Configuration Management:** Ansible (Automated baselining, Nginx, PostgreSQL packages, Node Exporter).
+* **Configuration Management:** Ansible (automated baselining, Nginx, PostgreSQL packages, Grafana Alloy host metrics and logs).
 * **CI/CD & Pipeline Security:** GitHub Actions + OpenID Connect (OIDC).
 * **Private Networking & Access:** Tailscale Mesh VPN, Tailscale SSH, Policy-as-Code (`tailscale/policy.hujson`).
 * **Cloud Infrastructure:** Microsoft Azure (VNets, Private Subnets, NSGs, User Assigned Managed Identity).
@@ -54,11 +56,13 @@ Developer / GitHub PR
         +--> Tailscale policy GitOps ---------------------------+
                                                                 |
 Azure: rg-hybrid-infra-lab-ha
-  +-- id-cm-ha + id-workload-ha; private Key Vault / Loki Blob
+  +-- id-cm-ha + id-workload-ha; private Key Vault / shared Loki Blob
   +-- VNet 10.20.0.0/16
   |    +-- control subnet 10.20.1.0/24: CM-01/02 (tag:cm)
-  |    |     +-- Prometheus, Alertmanager, Grafana, Loki, recovery
+  |    |     +-- Prometheus push receivers, Alertmanager, Grafana, stateless Loki, recovery
   |    +-- workload subnet 10.20.2.0/23: workload-01/02 (tag:workload)
+  |          +-- Alloy -> Tailscale TLS remote-write to CM Prometheus
+  |          +-- Alloy logs -> loopback Nginx failover proxy -> Loki over Tailscale TLS
   |          +-- cloudflared -> local Nginx proxy -> private TLS backends
   +-- no VM public IP / no subnet-router route
 
@@ -70,14 +74,14 @@ Apply `terraform/01-identity` first, then `terraform/02-vmresource`. A successfu
 ## 📂 Repository Structure
 
 - `.github/workflows/` — GitHub Actions workflows for Terraform plan/apply/destroy, Ansible checks/deploy, and Tailscale policy GitOps.
-- `.github/agents/` — Repository-scoped Phase 8 coordinator, implementation, and independent security-review agents.
+- `.github/copilot-instructions.md` — Workspace-wide instructions to keep agent context focused on the project status and relevant source files.
+- `PROJECT-STATUS.md` and `IMPLEMENTATION-DECISIONS.md` — Canonical implementation map, status, approved direction, and unresolved decisions.
 - `terraform/01-identity/` — Persistent Resource Group, managed identity, and `cm_reader` role assignment.
 - `terraform/02-vmresource/` — Private network, VMs, NSGs, and optional private Load Balancer scaffolding.
 - `bootstrap/` — Control-manager and workload cloud-init scripts.
 - `ansible/` — Dynamic inventory generator, playbooks, roles, and templates.
 - `tailscale/policy.hujson` — Tags, route approval, grants, and Tailscale SSH rules.
-- `docs/` — Ordered setup, verification, troubleshooting, and cleanup instructions.
-- `docs/phase-8/` — Phase 8 blueprint, concise external setup, file manifest, acceptance matrix, changelog, and operator guide. Code is present, but external placeholders and runtime tests remain open.
+- `docs/` — Human-oriented setup and operations references; coding agents should use the root status/decision files unless documentation work is explicitly requested.
 
 ---
 
@@ -95,9 +99,9 @@ Follow the numbered setup guides in the `docs/` folder in order:
 8. [08 — Limitations, security, and cleanup](docs/08-limitations-and-cleanup.md)
 9. [09 — Clone customization and security audit](docs/09-clone-customization-and-security-audit.md)
 
-### Phase 8 — HA platform implementation (runtime acceptance pending)
+### HA platform status
 
-Phase 8 code now covers configurable multi-zone VM maps, role-specific Tailscale identities, workload Tunnel/proxy roles, TLS telemetry, monitoring, and fixed recovery actions. It is not yet runtime-accepted: exact image/package/provider values need environment setup, and T01–T10/A01–A12 remain `NOT RUN`. Start with [one-time external setup](docs/phase-8/EXTERNAL-SETUP.md), then review the [blueprint](docs/phase-8/PHASE-8-BLUEPRINT.md), [manifest](docs/phase-8/PHASE-8-FILE-MANIFEST.md), [test matrix](docs/phase-8/PHASE-8-TEST-MATRIX.md), [changelog](docs/phase-8/PHASE-8-CHANGELOG.md), and [operator guide](docs/phase-8/PHASE-8-OPERATIONS.md). PostgreSQL remains single-instance; Patroni is optional.
+The source contains multi-zone VM maps, role-specific Tailscale identities, workload Tunnel/proxy roles, TLS telemetry, monitoring, and bounded recovery actions. Observability is configured for Alloy-only host metrics/log collection, Prometheus push receivers on each CM, and stateless Loki backed by the existing Azure Blob account, with no Azure Load Balancer in the telemetry path. Runtime HA is not accepted until the relevant deployment and failure checks have actually run. See [PROJECT-STATUS.md](PROJECT-STATUS.md) for current code facts and [IMPLEMENTATION-DECISIONS.md](IMPLEMENTATION-DECISIONS.md) for the implementation direction and open decisions. PostgreSQL remains a single-instance baseline; database HA is outside the current infrastructure scope.
 
 Terraform is being changed to default to two control managers and two workloads across zones. HA and failover must still be verified; one-node mode is non-HA. AWX is excluded. Cloudflare federation is preferred; if unavailable, the approved design permits a narrowly scoped, expiring Cloudflare API Token in Azure Key Vault, retrieved by workload Managed Identity at runtime to obtain/refresh Tunnel Tokens. This is a persistent credential, not short-lived; never expose it through Terraform state, cloud-init, logs or artifacts. SMTP/chat require separate approval. Deployment remains behind protected GitHub Environment approval, with exact commit pinning and short-lived OIDC identities as acceptance requirements.
 

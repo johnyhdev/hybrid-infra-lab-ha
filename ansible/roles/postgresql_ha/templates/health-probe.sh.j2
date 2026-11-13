@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+metric_dir=/var/lib/alloy/textfile
+output="$metric_dir/phase8_postgresql.prom"
+tmp="$(mktemp "$metric_dir/.phase8_postgresql.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+/usr/bin/python3 - <<'PY' > "$tmp"
+import base64
+import json
+import pathlib
+import ssl
+import subprocess
+import time
+import urllib.error
+import urllib.request
+
+cfg=json.loads(pathlib.Path('/etc/phase8-postgresql/runtime.json').read_text())
+patroni=json.loads(pathlib.Path('/etc/patroni/patroni.yml').read_text())
+auth=patroni['restapi']['authentication']
+credential=base64.b64encode(f"{auth['username']}:{auth['password']}".encode()).decode()
+context=ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
+for endpoint, metric in [('primary','phase8_postgresql_primary'), ('replica','phase8_postgresql_replica')]:
+    value=0
+    request=urllib.request.Request(f"https://{cfg['dns_name']}:{cfg['patroni_api_port']}/{endpoint}", headers={'Authorization': f'Basic {credential}'})
+    try:
+        with urllib.request.urlopen(request, timeout=3, context=context) as response:
+            value=1 if response.status == 200 else 0
+    except (urllib.error.URLError, urllib.error.HTTPError):
+        pass
+    print(f'{metric}{{instance="{cfg["node_name"]}"}} {value}')
+
+pg_ready=subprocess.run(['pg_isready','-h','127.0.0.1','-p',str(cfg['haproxy_port'])], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+print(f'phase8_postgresql_ready{{instance="{cfg["node_name"]}"}} {1 if pg_ready else 0}')
+
+try:
+    result=subprocess.run(['etcdctl', f"--endpoints=https://{cfg['dns_name']}:{cfg['etcd_client_port']}", '--cacert=/etc/ssl/certs/ca-certificates.crt', '--cert=/etc/phase8/tls/tls.crt', '--key=/etc/phase8/tls/tls.key', 'endpoint', 'health'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    etcd_healthy=result.returncode == 0
+except OSError:
+    etcd_healthy=False
+print(f'phase8_etcd_endpoint_healthy{{instance="{cfg["node_name"]}"}} {1 if etcd_healthy else 0}')
+
+query="SELECT failed_count, COALESCE(EXTRACT(EPOCH FROM last_archived_time)::bigint, 0) FROM pg_stat_archiver"
+try:
+    raw=subprocess.check_output(['runuser','-u','postgres','--','psql','-h','/var/run/postgresql','-p',str(cfg['postgresql_port']),'-d','postgres','-At','-c',query], text=True, timeout=5).strip()
+    failed_count, last_archived = (int(value) for value in raw.split('|',1))
+except (OSError, subprocess.SubprocessError, ValueError):
+    failed_count, last_archived = -1, 0
+print(f'phase8_postgresql_wal_archive_failed_total{{instance="{cfg["node_name"]}"}} {failed_count}')
+print(f'phase8_postgresql_wal_archive_lag_seconds{{instance="{cfg["node_name"]}"}} {max(0, int(time.time()) - last_archived) if last_archived else 0}')
+
+try:
+    last_success=int(subprocess.check_output(['/usr/local/lib/phase8-postgresql/postgres_blob.py','latest-success'], text=True, timeout=15).strip())
+except (OSError, subprocess.SubprocessError, ValueError):
+    last_success=0
+print(f'phase8_postgresql_backup_last_success_timestamp_seconds{{instance="{cfg["node_name"]}"}} {last_success}')
+PY
+chown root:alloy "$tmp"
+chmod 0640 "$tmp"
+mv "$tmp" "$output"
+trap - EXIT

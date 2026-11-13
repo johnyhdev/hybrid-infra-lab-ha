@@ -121,41 +121,56 @@ variable "tailscale_cm_audience" {
 }
 
 variable "workload_vms" {
-  description = "Workload VM definitions; scalable by map, with a design target up to 250 nodes"
+  description = "Workload VM definitions; PostgreSQL HA uses three designated cluster members"
 
   type = map(object({
-    size              = string
-    zone              = string
-    os_disk_size_gb   = number
-    data_disk_size_gb = number
-    database          = bool
+    size                    = string
+    zone                    = string
+    os_disk_size_gb         = number
+    data_disk_size_gb       = optional(number, 0)
+    database_cluster_member = optional(bool, false)
+    cloudflare_ingress      = optional(bool, false)
   }))
 
   default = {
     "vm-workload-01" = {
-      size              = "Standard_D2ps_v6"
-      zone              = "1"
-      os_disk_size_gb   = 64
-      data_disk_size_gb = 0
-      database          = true
+      size                    = "Standard_D2ps_v6"
+      zone                    = "1"
+      os_disk_size_gb         = 64
+      database_cluster_member = true
+      cloudflare_ingress      = true
     }
     "vm-workload-02" = {
-      size              = "Standard_D2ps_v6"
-      zone              = "2"
-      os_disk_size_gb   = 64
-      data_disk_size_gb = 0
-      database          = false
+      size                    = "Standard_D2ps_v6"
+      zone                    = "2"
+      os_disk_size_gb         = 64
+      database_cluster_member = true
+      cloudflare_ingress      = true
+    }
+    "vm-workload-03" = {
+      size                    = "Standard_D2ps_v6"
+      zone                    = "3"
+      os_disk_size_gb         = 64
+      database_cluster_member = true
+      cloudflare_ingress      = true
     }
   }
 
   validation {
-    condition     = length(var.workload_vms) >= 1 && length(var.workload_vms) <= 250
-    error_message = "workload_vms must contain between 1 and 250 nodes; this is a provisioning limit, not autoscaling."
+    condition     = length(var.workload_vms) >= 3 && length(var.workload_vms) <= 250
+    error_message = "workload_vms must contain the three HA database/app nodes and no more than 250 total nodes."
   }
 
   validation {
-    condition     = length([for vm in values(var.workload_vms) : vm if vm.database]) == 1
-    error_message = "Exactly one workload VM must be designated as the single PostgreSQL host."
+    condition     = length([for vm in values(var.workload_vms) : vm if vm.database_cluster_member]) == 3
+    error_message = "Exactly three workload VMs must be designated as PostgreSQL HA cluster members."
+  }
+
+  validation {
+    condition = length(distinct([
+      for vm in values(var.workload_vms) : vm.zone if vm.database_cluster_member
+    ])) == 3
+    error_message = "The three PostgreSQL cluster members must use three distinct availability zones."
   }
 }
 
@@ -247,5 +262,16 @@ variable "azure_cli_version" {
   validation {
     condition     = length(trimspace(var.azure_cli_version)) > 0 && !strcontains(var.azure_cli_version, "latest")
     error_message = "Provide the exact Azure CLI package version available in the Microsoft Ubuntu repository."
+  }
+}
+
+variable "postgres_backup_blob_retention_days" {
+  description = "Blob lifecycle retention for PostgreSQL base backups and WAL; longer than the 7-day PITR target for safety"
+  type        = number
+  default     = 9
+
+  validation {
+    condition     = var.postgres_backup_blob_retention_days >= 8 && var.postgres_backup_blob_retention_days <= 365
+    error_message = "PostgreSQL backup storage retention must exceed the PITR recovery window (minimum 8 days)."
   }
 }

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$#" -eq 2 ]] || exit 2
+exec /usr/bin/python3 /usr/local/lib/phase8-postgresql/postgres_blob.py restore "$1" "$2"

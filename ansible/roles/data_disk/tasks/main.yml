@@ -48,7 +48,7 @@
   when: (data_disk_size_gb | default(0) | int) > 0
 
 - name: Mount Azure data disk persistently
-  ansible.builtin.mount:
+  ansible.posix.mount:
     path: /mnt/phase8-data
     src: /dev/disk/azure/scsi1/lun0
     fstype: ext4

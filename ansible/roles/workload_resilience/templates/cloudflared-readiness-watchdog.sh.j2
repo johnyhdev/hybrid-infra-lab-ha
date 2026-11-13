@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+{% if inventory_hostname not in groups['cloudflare_ingress'] %}
+exit 0
+{% else %}
+state_dir=/run/phase8-cloudflared-watchdog
+mkdir -p "$state_dir"
+fail_file="$state_dir/failures"
+success_file="$state_dir/successes"
+failures=0
+successes=0
+[[ -r "$fail_file" ]] && read -r failures < "$fail_file" || true
+[[ -r "$success_file" ]] && read -r successes < "$success_file" || true
+
+if curl --fail --silent --show-error --max-time {{ cloudflared_watchdog_probe_timeout }} http://127.0.0.1:{{ workload_proxy_port }}/readyz >/dev/null; then
+  failures=0
+  successes=$((successes + 1))
+  printf '%s\n' "$failures" > "$fail_file"
+  printf '%s\n' "$successes" > "$success_file"
+  if (( successes >= {{ cloudflared_watchdog_recovery_successes | int }} )) && ! systemctl is-active --quiet cloudflared.service; then
+    if systemctl start cloudflared.service; then
+      logger -t phase8-cloudflared-watchdog "connector started after proxy readiness recovered"
+      printf '0\n' > "$success_file"
+    else
+      logger -p user.err -t phase8-cloudflared-watchdog "connector restart failed after proxy readiness recovered"
+    fi
+  fi
+else
+  successes=0
+  failures=$((failures + 1))
+  printf '%s\n' "$successes" > "$success_file"
+  printf '%s\n' "$failures" > "$fail_file"
+  if (( failures >= {{ cloudflared_watchdog_failure_checks | int }} )) && systemctl is-active --quiet cloudflared.service; then
+    if systemctl stop cloudflared.service; then
+      logger -p user.warning -t phase8-cloudflared-watchdog "connector stopped after repeated ingress proxy readiness failures"
+      printf '0\n' > "$fail_file"
+    else
+      logger -p user.err -t phase8-cloudflared-watchdog "failed to stop unhealthy ingress connector"
+    fi
+  fi
+fi
+{% endif %}

@@ -1,4 +1,27 @@
 ---
+- name: Check whether this workload has a legacy Tunnel connector unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/cloudflared.service
+  register: cloudflared_unit
+
+- name: Stop and disable legacy connectors outside the approved ingress set
+  ansible.builtin.systemd:
+    name: cloudflared
+    enabled: false
+    state: stopped
+  when:
+    - inventory_hostname not in groups['cloudflare_ingress']
+    - cloudflared_unit.stat.exists
+
+- name: Stop and disable the legacy Tunnel token refresh timer outside ingress
+  ansible.builtin.systemd:
+    name: cloudflared-refresh.timer
+    enabled: false
+    state: stopped
+  when:
+    - inventory_hostname not in groups['cloudflare_ingress']
+    - cloudflared_unit.stat.exists
+
 - name: Create Nginx resilience drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/nginx.service.d
@@ -34,7 +57,7 @@
 
 - name: Check distributed proxy health
   ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
+    url: "http://127.0.0.1:{{ workload_proxy_port }}/readyz"
     status_code: 200
   register: proxy_health
   retries: 5
@@ -67,3 +90,102 @@
     that:
       - "'Hybrid Infrastructure Lab - Application OK' in app_health.content"
     fail_msg: Local sample application returned an unexpected response.
+
+- name: Install workload health probe and connector watchdog scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - src: workload-health-probe.sh.j2
+      dest: /usr/local/sbin/phase8-workload-health-probe
+    - src: cloudflared-readiness-watchdog.sh.j2
+      dest: /usr/local/sbin/phase8-cloudflared-readiness-watchdog
+
+- name: Install workload health probe and ingress watchdog systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: workload-health-probe.service.j2
+      dest: /etc/systemd/system/phase8-workload-health-probe.service
+    - src: workload-health-probe.timer.j2
+      dest: /etc/systemd/system/phase8-workload-health-probe.timer
+    - src: cloudflared-watchdog.service.j2
+      dest: /etc/systemd/system/phase8-cloudflared-watchdog.service
+    - src: cloudflared-watchdog.timer.j2
+      dest: /etc/systemd/system/phase8-cloudflared-watchdog.timer
+  notify: Reload systemd manager
+
+- name: Enable periodic workload health metrics
+  ansible.builtin.systemd:
+    name: phase8-workload-health-probe.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable ingress readiness watchdog on Cloudflare connector nodes only
+  ansible.builtin.systemd:
+    name: phase8-cloudflared-watchdog.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: inventory_hostname in groups['cloudflare_ingress']
+
+- name: Disable ingress watchdog on application-only nodes
+  ansible.builtin.systemd:
+    name: phase8-cloudflared-watchdog.timer
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  when: inventory_hostname not in groups['cloudflare_ingress']
+
+- name: Read workload root filesystem usage for deployment gate
+  ansible.builtin.command:
+    argv: [df, -P, /]
+  register: rollout_root_disk
+  changed_when: false
+
+- name: Require root filesystem to have deployment headroom
+  ansible.builtin.assert:
+    that:
+      - rollout_root_disk.stdout_lines[-1].split()[4] | regex_replace('%', '') | int < workload_rollout_max_root_disk_used_percent | int
+    fail_msg: Root filesystem usage exceeds the configured rollout threshold.
+
+- name: Read available memory percentage for deployment gate
+  ansible.builtin.command:
+    argv:
+      - awk
+      - '/MemTotal:/ { total=$2 } /MemAvailable:/ { available=$2 } END { if (total > 0) printf "%.0f", available * 100 / total; else exit 1 }'
+      - /proc/meminfo
+  register: rollout_memory_available
+  changed_when: false
+
+- name: Require sufficient available memory for deployment
+  ansible.builtin.assert:
+    that:
+      - rollout_memory_available.stdout | int >= workload_rollout_min_memory_available_percent | int
+    fail_msg: Available memory is below the configured rollout threshold.
+
+- name: Read CPU load and processor count for deployment gate
+  ansible.builtin.command:
+    argv: [cut, -d' ', -f1, /proc/loadavg]
+  register: rollout_cpu_load
+  changed_when: false
+
+- name: Read processor count for deployment gate
+  ansible.builtin.command:
+    argv: [nproc]
+  register: rollout_cpu_count
+  changed_when: false
+
+- name: Require CPU load to have deployment headroom
+  ansible.builtin.assert:
+    that:
+      - rollout_cpu_load.stdout | float <= (rollout_cpu_count.stdout | int * workload_rollout_cpu_load_per_core_max | float)
+    fail_msg: CPU load exceeds the configured per-core rollout threshold.

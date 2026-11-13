@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Cloudflare ingress readiness frequently
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec={{ cloudflared_watchdog_interval }}
+RandomizedDelaySec=3s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

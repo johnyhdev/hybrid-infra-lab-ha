@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$#" -eq 2 && "$1" =~ ^[A-Za-z0-9._-]{1,128}$ ]] || {
+  echo "Usage: $0 <UTC-backup-id> <empty-destination-directory>" >&2
+  exit 2
+}
+destination="$2"
+[[ ! -e "$destination" || -z "$(find "$destination" -mindepth 1 -maxdepth 1 -print -quit)" ]] || {
+  echo "Destination must be absent or empty; refusing to overwrite files." >&2
+  exit 2
+}
+exec /usr/bin/python3 /usr/local/lib/phase8-postgresql/postgres_blob.py download-backup "$1" "$destination"
