@@ -49,6 +49,6 @@ output "key_vault_id" {
 }
 
 output "loki_encryption_key_id" {
-  description = "Resource ID of the Loki storage encryption key in Key Vault"
-  value       = azurerm_key_vault_key.loki_encryption_key.id
+  description = "Resource ID of the optional customer-managed Blob encryption key; null when enable_storage_cmk is false"
+  value       = try(azurerm_key_vault_key.loki_encryption_key[0].id, null)
 }

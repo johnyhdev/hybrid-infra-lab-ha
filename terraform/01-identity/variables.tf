@@ -35,3 +35,15 @@ variable "key_vault_name" {
     error_message = "key_vault_name must be 3-24 characters, start with a letter, end with a letter or digit, and contain no consecutive hyphens."
   }
 }
+
+variable "enable_storage_cmk" {
+  description = "Opt in to customer-managed encryption for Blob Storage; disabled by default to avoid extra Key Vault key-operation charges"
+  type        = bool
+  default     = false
+}
+
+variable "storage_encryption_key_name" {
+  description = "Key Vault RSA key name used only when enable_storage_cmk is true"
+  type        = string
+  default     = "loki-encryption-key"
+}

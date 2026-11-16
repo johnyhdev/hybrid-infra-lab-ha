@@ -93,12 +93,13 @@
     proto: tcp
     src: "{{ workload_plane_subnet_cidr | default('10.20.2.0/23') }}"
 
-- name: Allow workload proxy health and backend traffic from workload subnet
+- name: Remove legacy workload-subnet access to the local-only proxy port
   community.general.ufw:
     rule: allow
     port: "{{ workload_proxy_port }}"
     proto: tcp
     src: "{{ workload_plane_subnet_cidr | default('10.20.2.0/23') }}"
+    delete: true
 
 - name: Allow Azure Load Balancer health probes to the workload proxy
   community.general.ufw:

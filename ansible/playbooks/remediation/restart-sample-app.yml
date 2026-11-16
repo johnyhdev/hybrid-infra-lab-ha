@@ -6,6 +6,7 @@
 
   tasks:
     - name: Probe local application
+      # checkov:skip=CKV2_ANSIBLE_1:The application health endpoint is bound to loopback only behind TLS-enabled Nginx.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ sample_app_port }}/healthz"
         status_code: 200
@@ -20,6 +21,7 @@
       when: app_probe.status | default(0) != 200
 
     - name: Verify local application recovery
+      # checkov:skip=CKV2_ANSIBLE_1:The application health endpoint is bound to loopback only behind TLS-enabled Nginx.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ sample_app_port }}/healthz"
         status_code: 200

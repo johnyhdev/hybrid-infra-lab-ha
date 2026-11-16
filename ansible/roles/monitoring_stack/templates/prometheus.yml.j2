@@ -19,8 +19,12 @@ alerting:
     - static_configs:
         - targets:
 {% for peer in groups['control'] %}
-            - "{{ hostvars[peer].ansible_host }}:{{ monitoring_alertmanager_port }}"
+            - "{{ hostvars[peer].tailscale_dns_name }}:{{ monitoring_alertmanager_port }}"
 {% endfor %}
+      scheme: https
+      tls_config:
+        ca_file: /etc/ssl/certs/ca-certificates.crt
+        insecure_skip_verify: false
 
 scrape_configs:
   - job_name: prometheus

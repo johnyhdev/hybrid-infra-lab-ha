@@ -160,6 +160,7 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Verify dispatcher loopback endpoint
+  # checkov:skip=CKV2_ANSIBLE_1:The dispatcher binds only to loopback and accepts local Alertmanager webhook traffic.
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ monitoring_dispatcher_port }}/healthz"
     status_code: 200

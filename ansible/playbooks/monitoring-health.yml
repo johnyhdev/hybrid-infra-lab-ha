@@ -17,13 +17,13 @@
 
     - name: Check Alertmanager readiness on tailnet interface
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ monitoring_alertmanager_port }}/-/ready"
+        url: "https://{{ tailscale_dns_name }}:{{ monitoring_alertmanager_port }}/-/ready"
         status_code: 200
       changed_when: false
 
     - name: Check Grafana health on tailnet interface
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ monitoring_grafana_port }}/api/health"
+        url: "https://{{ tailscale_dns_name }}:{{ monitoring_grafana_port }}/api/health"
         status_code: 200
       changed_when: false
 
@@ -40,12 +40,14 @@
       changed_when: false
 
     - name: Check local Loki failover gateway
+      # checkov:skip=CKV2_ANSIBLE_1:This endpoint is bound to 127.0.0.1 only; external Loki traffic uses the separate TLS listener.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ monitoring_loki_proxy_port }}/ready"
         status_code: 200
       changed_when: false
 
     - name: Check local dispatcher health
+      # checkov:skip=CKV2_ANSIBLE_1:This endpoint is bound to 127.0.0.1 only and is not exposed to the network.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ monitoring_dispatcher_port }}/healthz"
         status_code: 200

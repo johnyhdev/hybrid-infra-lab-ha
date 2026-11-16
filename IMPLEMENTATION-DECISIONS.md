@@ -1,6 +1,6 @@
 # Implementation Decisions and Open Items
 
-**Last updated:** 2026-11-12  
+**Last updated:** 2026-11-13
 This file records user-approved direction and unresolved design choices. It must not be interpreted as proof that planned changes are implemented. The current source map and implementation facts are in [PROJECT-STATUS.md](PROJECT-STATUS.md).
 
 ## Approved direction
@@ -10,10 +10,19 @@ This file records user-approved direction and unresolved design choices. It must
 3. **Prometheus and Alloy:** Alloy is the sole system metrics/log agent, embedding the unix exporter. Allowlist essential metric series, scrape every 15 seconds, and remote-write concurrently to all CM Prometheus endpoints using Tailscale DNS TLS and WAL. Prometheus runs on each CM as a TLS push receiver, keeps local TSDB, and only self-scrapes. Remove the per-replica label from alert notifications so Alertmanager's HA pair can deduplicate duplicate evaluations. PostgreSQL metrics remain basic service/readiness scope.
 4. **Loki:** Use shared Azure Blob as the stateless/shared chunks+TSDB object store; each CM runs Loki with memberlist over Tailscale and `replication_factor: 1`. Alloy emits each log once to loopback Nginx; the proxy round-robins/fails over over verified TLS to CM Loki peers. Use 30m idle and 1h max chunk age to batch Blob transactions, retain 7 days, and keep local WAL/index/cache only as working state. Do not use a paid Azure Load Balancer. This replaces the earlier local-filesystem Loki and Alloy log-dual-write proposal.
 5. **Key Vault network:** Keep Key Vault for workload managed-identity runtime access to Cloudflare secret. Target a Key Vault service endpoint and firewall allowlist for only workload subnet(s), default deny; avoid the Private Endpoint/Private DNS cost if the service-endpoint design fits. This requires Key Vault public network access through its firewall (not unrestricted public access) and coordination of subnet IDs across Terraform roots. The design is not implemented yet.
-6. **Encryption:** HSM is not required. If no customer-managed-key requirement exists, prefer Azure-managed Storage encryption and remove CMK-specific Terraform access to Key Vault. Preserve Key Vault RBAC, workload identity, TLS, and secret handling.
+6. **Encryption:** HSM is not required. Storage uses Azure-managed encryption by default. Customer-managed Storage encryption is opt-in via Terraform `enable_storage_cmk` (default `false`) and GitHub repository variable `ENABLE_STORAGE_CMK=true`; set `STORAGE_ENCRYPTION_KEY_NAME` consistently for both Terraform roots if using a custom key. When enabling it, apply the identity root first so the Key Vault key exists before planning/applying the VM-resource root. This may incur Key Vault key-operation charges and adds key lifecycle/availability responsibilities. Do not select Premium/HSM-backed keys without explicit cost/compliance approval. Preserve Key Vault RBAC, workload identity, TLS, and secret handling in the default configuration. Existing deployments that already use CMK should set the variable to `true` before planning; switching it off changes the Storage Account encryption association and requires deliberate plan/recovery review.
 7. **Automation context:** Agents must start from `PROJECT-STATUS.md`, inspect only source files relevant to the requested task, avoid retired `.github/agents/` and `docs/` context unless explicitly asked, and update the status/decision record in the same change when implementation or architecture decisions change.
+8. **Ansible security gate:** Run Checkov's Ansible framework in the Ansible pull-request workflow as a hard-fail merge check. Use the existing Tailscale-issued certificates (no additional paid service) to protect monitoring APIs exposed on the tailnet. Keep narrowly scoped Checkov inline exceptions only for HTTP health endpoints that are loopback-only; document the binding/firewall reason beside each exception. Do not globally skip HTTPS policies.
 
 ## Open decisions and validation before rollout
+
+### Ansible Checkov scan
+
+Checkov 3.4.4 scanned the `ansible/` directory with `--framework ansible`: 55 checks passed, 0 failed, and 13 skipped. The failures were all Checkov's blanket HTTP-URI policy. Exposed Prometheus, Alertmanager, and Grafana health paths are HTTPS with system certificate validation; Alertmanager TLS reuses the existing Tailscale certificate. Remaining exceptions are task-local health probes to loopback services, with task-level explanations; the workload proxy binds loopback by default and the optional Azure Load Balancer probe listener is separately source-restricted. The CI Checkov action is configured as a hard gate. No paid security add-on was needed for these fixes.
+
+GitHub workflow YAML alone cannot enforce repository merge rules. Configure `Ansible Check HA / Ansible Check and Security` as a required status check in the `main` branch protection/ruleset; otherwise the workflow reports failures but an authorized user may still bypass the check and merge.
+
+Customer-managed Storage encryption is a separate cost choice, not a Checkov remediation: Azure-managed encryption is now the default. Opt-in CMK can incur Key Vault key-operation charges and adds key lifecycle responsibilities; see approved decision 6 and the Terraform variable `enable_storage_cmk`.
 
 ### Shared dispatcher coordination and Blob retention
 

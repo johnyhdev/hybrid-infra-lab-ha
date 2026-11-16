@@ -36,6 +36,7 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Verify the local Loki proxy is listening
+  # checkov:skip=CKV2_ANSIBLE_1:The health endpoint is loopback-only; remote Loki ingress is separately TLS-protected.
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ monitoring_loki_proxy_port }}/ready"
     status_code: 200

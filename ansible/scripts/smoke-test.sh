@@ -14,10 +14,17 @@ curl --fail --silent --show-error --max-time 5 \
   "https://$SELF_DNS_NAME:9090/-/ready" >/dev/null
 printf 'PASS https://%s:9090/-/ready\n' "$SELF_DNS_NAME"
 for endpoint in \
-  "http://${TAILSCALE_IP}:9093/-/ready" \
-  "http://${TAILSCALE_IP}:3000/api/health" \
+  "https://${SELF_DNS_NAME}:9093/-/ready" \
+  "https://${SELF_DNS_NAME}:3000/api/health" \
   "http://127.0.0.1:9088/healthz"; do
-  curl --fail --silent --show-error --max-time 5 "$endpoint" >/dev/null
+  if [[ "$endpoint" == https://* ]]; then
+    port="${endpoint#https://${SELF_DNS_NAME}:}"
+    port="${port%%/*}"
+    curl --fail --silent --show-error --max-time 5 \
+      --resolve "$SELF_DNS_NAME:$port:$TAILSCALE_IP" "$endpoint" >/dev/null
+  else
+    curl --fail --silent --show-error --max-time 5 "$endpoint" >/dev/null
+  fi
   printf 'PASS %s\n' "$endpoint"
 done
 

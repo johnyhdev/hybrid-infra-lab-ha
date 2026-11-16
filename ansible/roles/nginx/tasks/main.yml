@@ -44,6 +44,7 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Check local application HTTP health
+  # checkov:skip=CKV2_ANSIBLE_1:This backend is bound to 127.0.0.1 only; the user-facing Nginx endpoint uses TLS.
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ sample_app_port }}/"
     status_code: 200

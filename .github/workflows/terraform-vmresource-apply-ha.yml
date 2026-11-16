@@ -217,6 +217,8 @@ jobs:
       TF_VAR_workload_managed_identity_name: ${{ vars.WORKLOAD_MANAGED_IDENTITY_NAME }}
       TF_VAR_key_vault_name: ${{ vars.AZURE_KEY_VAULT_NAME }}
       TF_VAR_loki_storage_account_name: ${{ vars.LOKI_STORAGE_ACCOUNT_NAME }}
+      TF_VAR_enable_storage_cmk: ${{ vars.ENABLE_STORAGE_CMK || 'false' }}
+      TF_VAR_storage_encryption_key_name: ${{ vars.STORAGE_ENCRYPTION_KEY_NAME || 'loki-encryption-key' }}
       TF_VAR_ubuntu_image_version: ${{ vars.UBUNTU_IMAGE_VERSION }}
       TF_VAR_tailscale_package_version: ${{ vars.TAILSCALE_PACKAGE_VERSION }}
       TF_VAR_azure_cli_version: ${{ vars.AZURE_CLI_VERSION }}

@@ -6,6 +6,7 @@
 
   tasks:
     - name: Probe local Nginx proxy readiness
+      # checkov:skip=CKV2_ANSIBLE_1:The health endpoint is loopback-only; external workload traffic uses the TLS listener.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
         status_code: 200
@@ -20,6 +21,7 @@
       when: nginx_probe.status | default(0) != 200
 
     - name: Verify Nginx proxy recovered
+      # checkov:skip=CKV2_ANSIBLE_1:The health endpoint is loopback-only; external workload traffic uses the TLS listener.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ workload_proxy_port }}/healthz"
         status_code: 200

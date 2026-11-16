@@ -84,7 +84,8 @@ resource "azurerm_role_assignment" "workload_keyvault_secret_reader" {
 resource "azurerm_key_vault_key" "loki_encryption_key" {
   #checkov:skip=CKV_AZURE_112: Software-protected key is acceptable for this lab baseline; HSM is not a compliance requirement.
 
-  name            = "loki-encryption-key"
+  count           = var.enable_storage_cmk ? 1 : 0
+  name            = var.storage_encryption_key_name
   key_vault_id    = azurerm_key_vault.workload_secrets.id
   key_type        = "RSA"
   key_size        = 4096

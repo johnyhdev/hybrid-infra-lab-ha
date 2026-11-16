@@ -63,6 +63,19 @@
     append: true
     state: present
 
+- name: Grant Alertmanager and Grafana access to the shared Tailscale TLS key
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: phase8-tls
+    append: true
+    state: present
+  loop:
+    - alertmanager
+    - grafana
+  notify:
+    - Restart Alertmanager
+    - Restart Grafana
+
 - name: Install Prometheus HTTPS web configuration
   ansible.builtin.template:
     src: prometheus-web.yml.j2
@@ -71,6 +84,15 @@
     group: phase8-tls
     mode: "0640"
   notify: Restart Prometheus
+
+- name: Install Alertmanager HTTPS web configuration
+  ansible.builtin.template:
+    src: alertmanager-web.yml.j2
+    dest: /etc/prometheus/alertmanager-web.yml
+    owner: root
+    group: phase8-tls
+    mode: "0640"
+  notify: Restart Alertmanager
 
 - name: Allow monitoring UIs and APIs only over the tailnet interface
   community.general.ufw:
@@ -222,6 +244,7 @@
       ARGS="--config.file=/etc/prometheus/alertmanager.yml
       --storage.path=/var/lib/alertmanager
       --web.listen-address={{ ansible_host }}:{{ monitoring_alertmanager_port }}
+      --web.config.file=/etc/prometheus/alertmanager-web.yml
       --cluster.listen-address={{ ansible_host }}:9094
       {% for peer in groups['control'] if peer != inventory_hostname %}      --cluster.peer={{ hostvars[peer].ansible_host }}:9094
       {% endfor %}      "
@@ -279,6 +302,19 @@
     option: http_port
     value: "{{ monitoring_grafana_port }}"
     no_extra_spaces: true
+  notify: Restart Grafana
+
+- name: Configure Grafana HTTPS listener with the node Tailscale certificate
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: server
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    no_extra_spaces: true
+  loop:
+    - { option: protocol, value: https }
+    - { option: cert_file, value: /etc/phase8/tls/tls.crt }
+    - { option: cert_key, value: /etc/phase8/tls/tls.key }
   notify: Restart Grafana
 
 - name: Restrict Grafana to tailnet-only read-only access
@@ -372,7 +408,7 @@
 
 - name: Verify Prometheus readiness
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ monitoring_prometheus_port }}/-/ready"
+    url: "https://{{ tailscale_dns_name }}:{{ monitoring_prometheus_port }}/-/ready"
     status_code: 200
   changed_when: false
   retries: 10
@@ -382,7 +418,7 @@
 
 - name: Verify Grafana health
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:{{ monitoring_grafana_port }}/api/health"
+    url: "https://{{ tailscale_dns_name }}:{{ monitoring_grafana_port }}/api/health"
     status_code: 200
   changed_when: false
   retries: 10

@@ -56,6 +56,7 @@
   changed_when: false
 
 - name: Check distributed proxy health
+  # checkov:skip=CKV2_ANSIBLE_1:The default readiness listener is loopback-only; optional LB adds only a private-IP probe listener restricted by NSG/UFW.
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ workload_proxy_port }}/readyz"
     status_code: 200
@@ -78,6 +79,7 @@
   changed_when: false
 
 - name: Check local application response
+  # checkov:skip=CKV2_ANSIBLE_1:The sample app binds to loopback only behind the TLS-enabled Nginx frontend.
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ sample_app_port }}/"
     status_code: 200

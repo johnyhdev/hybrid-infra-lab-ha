@@ -30,6 +30,7 @@ data "azurerm_key_vault" "workload_secrets" {
 
 # 1. Truy vấn thông tin Key bên trong Key Vault hiện có
 data "azurerm_key_vault_key" "loki_encryption_key" {
+  count        = var.enable_storage_cmk ? 1 : 0
   name         = var.storage_encryption_key_name # Tên Key trong Key Vault (ví dụ: "loki-storage-key")
   key_vault_id = data.azurerm_key_vault.workload_secrets.id
 }
@@ -83,8 +84,9 @@ resource "azurerm_storage_account_queue_properties" "loki" {
 
 # Đảm bảo phân quyền RBAC được áp dụng xong trước khi gán Customer Managed Key vào Storage Account
 resource "azurerm_storage_account_customer_managed_key" "loki_cmk" {
+  count              = var.enable_storage_cmk ? 1 : 0
   storage_account_id = azurerm_storage_account.loki.id
-  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key.id
+  key_vault_key_id   = data.azurerm_key_vault_key.loki_encryption_key[0].id
 
   depends_on = [
     azurerm_role_assignment.storage_cmk_encryption
@@ -214,6 +216,7 @@ resource "azurerm_monitor_diagnostic_setting" "loki_blob_logging" {
 
 # Cấp quyền cho Storage Account System-Assigned Identity được phép dùng Key trong Key Vault (do KV bật Azure RBAC)
 resource "azurerm_role_assignment" "storage_cmk_encryption" {
+  count                = var.enable_storage_cmk ? 1 : 0
   scope                = data.azurerm_key_vault.workload_secrets.id
   role_definition_name = "Key Vault Crypto Service Encryption User"
   principal_id         = azurerm_storage_account.loki.identity[0].principal_id

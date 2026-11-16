@@ -7,12 +7,14 @@ on:
       - "terraform/**/*.tf"
       - "bootstrap/**"
       - "tailscale/**"
+      - ".checkov.yaml"
       - "docs/phase-8/**"
       - ".github/agents/**"
       - ".github/workflows/ansible-check.yml"
 
 jobs:
   check:
+    name: Ansible Check and Security
     runs-on: ubuntu-24.04
 
     steps:
@@ -50,21 +52,14 @@ jobs:
       - name: Validate repository without cloud credentials
         run: bash ansible/scripts/validate-repo.sh
 
-      - name: Syntax check
-        env:
-          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles:${{ github.workspace }}/ansible/playbooks/roles
-        run: |
-          ansible-playbook \
-            -i ansible/inventory/hosts.yml \
-            ansible/playbooks/site.yml \
-            --syntax-check
-
-      - name: Run ansible-lint
-        env:
-          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles:${{ github.workspace }}/ansible/playbooks/roles
-          ANSIBLE_INVENTORY: ${{ github.workspace }}/ansible/inventory/hosts.yml
-        run: |
-          ansible-lint ansible/
+      - name: Checkov Ansible security scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ansible
+          framework: ansible
+          config_file: .checkov.yaml
+          quiet: true
+          soft_fail: false
 
       - name: Scan for committed secrets
         uses: gitleaks/gitleaks-action@v2

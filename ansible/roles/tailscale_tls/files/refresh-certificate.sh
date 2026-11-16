@@ -24,6 +24,8 @@ echo "Issued or renewed TLS certificate for $dns_name"
 
 systemctl try-reload-or-restart nginx.service >/dev/null 2>&1 || true
 systemctl try-restart prometheus.service >/dev/null 2>&1 || true
+systemctl try-reload-or-restart prometheus-alertmanager.service >/dev/null 2>&1 || true
+systemctl try-reload-or-restart grafana-server.service >/dev/null 2>&1 || true
 # Patroni owns PostgreSQL lifecycle. Certificate rotation for PostgreSQL, etcd,
 # and HAProxy requires a coordinated, quorum-aware maintenance procedure; do not
 # restart database services independently from this per-node renewal timer.

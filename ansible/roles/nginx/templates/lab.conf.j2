@@ -41,7 +41,11 @@ server {
 # Cloudflare Tunnel targets this local listener. This server fans out to
 # dynamically discovered private workload backends, including this VM.
 server {
-    listen {{ workload_proxy_port }};
+    listen 127.0.0.1:{{ workload_proxy_port }};
+{% if enable_load_balancer | default(false) | bool %}
+    # Optional private LB health-probe listener; NSG/UFW allow only the Azure probe source.
+    listen {{ workload_private_ip }}:{{ workload_proxy_port }};
+{% endif %}
     server_name _;
 
     location = /livez {

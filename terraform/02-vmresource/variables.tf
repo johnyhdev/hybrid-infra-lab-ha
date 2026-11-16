@@ -238,9 +238,15 @@ variable "loki_storage_account_name" {
 }
 
 variable "storage_encryption_key_name" {
-  description = "Name of the RSA key stored in the Azure Key Vault for storage encryption"
+  description = "Name of the RSA key stored in the Azure Key Vault when customer-managed storage encryption is enabled"
   type        = string
   default     = "loki-encryption-key"
+}
+
+variable "enable_storage_cmk" {
+  description = "Opt in to customer-managed Blob encryption; enabling it requires the matching Key Vault key and may incur extra Key Vault operation charges"
+  type        = bool
+  default     = false
 }
 
 variable "tailscale_package_version" {

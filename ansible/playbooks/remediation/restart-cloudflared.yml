@@ -6,6 +6,7 @@
 
   tasks:
     - name: Probe local Cloudflare connector metrics
+      # checkov:skip=CKV2_ANSIBLE_1:cloudflared metrics listen on loopback only and are not exposed outside this VM.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ cloudflared_metrics_port }}/metrics"
         status_code: 200
@@ -20,6 +21,7 @@
       when: connector_probe.status | default(0) != 200
 
     - name: Verify connector recovery
+      # checkov:skip=CKV2_ANSIBLE_1:cloudflared metrics listen on loopback only and are not exposed outside this VM.
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ cloudflared_metrics_port }}/metrics"
         status_code: 200
