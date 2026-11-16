@@ -64,8 +64,8 @@ jobs:
           soft_fail: false
 
       - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: detect --redact -v --exit-code=2 --report-format=sarif --report-path=gitleaks-results.sarif --log-level=debug # Đổi tên file output của Gitleaks
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          GITLEAKS_VERSION="8.24.3"
+          curl -sSL https://github.com/zricethezav/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz
+          ./gitleaks detect --source . --redact -v --exit-code=2 --report-format=sarif --report-path=gitleaks-results.sarif --log-level=debug
