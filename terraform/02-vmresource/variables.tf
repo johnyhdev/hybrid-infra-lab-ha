@@ -96,6 +96,7 @@ variable "ha_mode" {
 variable "disk_encryption_set_id" {
   description = "ID of the Disk Encryption Set to use for managed disks"
   type        = string
+  default     = ""
 }
 
 variable "tailscale_cm_client_id" {

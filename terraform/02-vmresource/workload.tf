@@ -115,7 +115,7 @@ resource "azurerm_managed_disk" "workload_data" {
   create_option          = "Empty"
   disk_size_gb           = each.value.data_disk_size_gb
   zone                   = each.value.zone
-  disk_encryption_set_id = var.disk_encryption_set_id
+  disk_encryption_set_id = var.disk_encryption_set_id != "" ? var.disk_encryption_set_id : null
   network_access_policy  = "DenyAll"
 }
 

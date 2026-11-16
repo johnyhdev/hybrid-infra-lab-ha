@@ -113,7 +113,7 @@ resource "azurerm_managed_disk" "cm_data" {
   create_option          = "Empty"
   disk_size_gb           = each.value.data_disk_size_gb
   zone                   = each.value.zone
-  disk_encryption_set_id = var.disk_encryption_set_id # <-- Bổ sung biến trỏ tới Disk Encryption Set
+  disk_encryption_set_id = var.disk_encryption_set_id != "" ? var.disk_encryption_set_id : null # <-- Bổ sung biến trỏ tới Disk Encryption Set
   network_access_policy  = "DenyAll"
 }
 
