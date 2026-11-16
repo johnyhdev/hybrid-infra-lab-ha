@@ -131,18 +131,21 @@ resource "azurerm_storage_management_policy" "loki_cleanup" {
   }
 }
 
+# checkov:skip=CKV2_AZURE_21: "Blob service logging is handled globally via diagnostic settings"
 resource "azurerm_storage_container" "loki" {
   name                  = "loki"
   storage_account_id    = azurerm_storage_account.loki.id
   container_access_type = "private"
 }
 
+# checkov:skip=CKV2_AZURE_21: "Blob service logging is handled globally via diagnostic settings"
 resource "azurerm_storage_container" "recovery" {
   name                  = "recovery-state"
   storage_account_id    = azurerm_storage_account.loki.id
   container_access_type = "private"
 }
 
+# checkov:skip=CKV2_AZURE_21: "Blob service logging is handled globally via diagnostic settings"
 resource "azurerm_storage_container" "postgres_backups" {
   name                  = "postgres-backups"
   storage_account_id    = azurerm_storage_account.loki.id

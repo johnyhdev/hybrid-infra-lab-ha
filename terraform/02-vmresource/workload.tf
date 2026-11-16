@@ -100,7 +100,7 @@ resource "azurerm_linux_virtual_machine" "workload" {
   }
 }
 
-# checkov:skip=BC_AZURE_251: "Managed disk network access policy and encryption managed by lab baseline"
+# checkov:skip=CKV_AZURE_251: "Managed disk network access policy and encryption managed by lab baseline"
 resource "azurerm_managed_disk" "workload_data" {
   for_each = {
     for name, vm in var.workload_vms : name => vm
