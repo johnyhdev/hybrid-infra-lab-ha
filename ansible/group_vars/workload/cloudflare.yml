@@ -1,0 +1,14 @@
+---
+# Non-secret ingress Tunnel metadata. The `cloudflare_ingress` inventory group
+# selects gateway nodes; every workload is an Nginx application backend.
+# Never commit API/Tunnel token values.
+cloudflared_package_version: "REPLACE_WITH_APPROVED_REPO_VERSION"
+cloudflare_api_token_secret_name: "cloudflare-api-token"
+cloudflare_key_vault_uri: "https://REPLACE_WITH_VAULT.vault.azure.net"
+cloudflare_account_id: "REPLACE_WITH_ACCOUNT_ID"
+
+cloudflare_tunnel_pools:
+  - pool_name: web-primary
+    tunnel_id: "REPLACE_WITH_TUNNEL_UUID"
+    max_replicas: 25
+

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$#" -eq 1 && "$1" =~ ^vm-workload-[a-z0-9-]+$ ]] || exit 2
+cd /home/azureadmin/hybrid-infra-lab-ha/ansible
+if ! runuser -u azureadmin -- /opt/ansible-venv/bin/ansible-inventory -i inventory/generated/tailscale.yml --list | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if sys.argv[1] in data.get("workload",{}).get("hosts",[]) else 1)' "$1"; then exit 2; fi
+exec runuser -u azureadmin -- /opt/ansible-venv/bin/ansible-playbook -i inventory/generated/tailscale.yml --limit "$1" playbooks/remediation/stop-cpu-test.yml

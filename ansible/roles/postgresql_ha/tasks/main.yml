@@ -1,0 +1,448 @@
+---
+- name: Require the complete three-member PostgreSQL HA group
+  ansible.builtin.assert:
+    that:
+      - groups['database'] | length == 3
+      - groups['database'] | difference(groups['workload']) | length == 0
+      - groups['database'] | map('extract', hostvars, 'azure_private_ip') | list | unique | length == 3
+      - groups['database'] | map('extract', hostvars, 'tailscale_dns_name') | list | unique | length == 3
+      - postgresql_ha_enabled | bool
+      - "'REPLACE_' not in postgresql_key_vault_uri"
+      - postgresql_secret_names | length == 5
+      - postgresql_backup_managed_identity_client_id is defined
+      - postgresql_backup_managed_identity_client_id | length > 0
+    fail_msg: >-
+      PostgreSQL HA requires all three online workload members, unique overlay/private
+      addresses, a Key Vault URI, and five pre-created password secrets.
+  run_once: true
+
+- name: Select PostgreSQL data directory
+  ansible.builtin.set_fact:
+    postgresql_data_directory: >-
+      {{ (postgresql_data_disk_mount ~ '/postgresql/' ~ postgresql_major ~ '/main')
+         if (hostvars[inventory_hostname].data_disk_size_gb | default(0) | int > 0)
+         else ('/var/lib/postgresql/' ~ postgresql_major ~ '/main') }}
+
+- name: Refuse unsafe automatic reuse of an existing PostgreSQL data directory
+  ansible.builtin.stat:
+    path: "{{ postgresql_data_directory }}/PG_VERSION"
+  register: existing_pg_data
+
+- name: Check whether Patroni already owns the data directory
+  ansible.builtin.stat:
+    path: /etc/systemd/system/patroni.service
+  register: existing_patroni_unit
+
+- name: Stop if existing database data requires an explicit migration
+  ansible.builtin.assert:
+    that:
+      - not existing_pg_data.stat.exists or existing_patroni_unit.stat.exists
+    fail_msg: >-
+      Existing PostgreSQL data is present at {{ postgresql_data_directory }} but Patroni
+      is not installed. Backup and perform a documented migration; automatic overwrite
+      or formatting is forbidden.
+
+- name: Create sample application system account before secret config generation
+  ansible.builtin.user:
+    name: sample-app
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/sample-app
+    create_home: true
+    state: present
+
+- name: Create etcd service group and account
+  ansible.builtin.user:
+    name: etcd
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/etcd
+    create_home: false
+    state: present
+
+- name: Ensure watchdog supplementary group exists
+  ansible.builtin.group:
+    name: watchdog
+    system: true
+    state: present
+  when: postgresql_require_watchdog | bool
+
+- name: Add database services to the TLS and watchdog reader groups
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    append: true
+    state: present
+  loop:
+    - name: postgres
+      groups: "phase8-tls{{ ',watchdog' if postgresql_require_watchdog | bool else '' }}"
+    - { name: etcd, groups: phase8-tls }
+
+- name: Install PostgreSQL package manager tooling
+  ansible.builtin.apt:
+    name: postgresql-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Disable Debian automatic main cluster creation before installing PostgreSQL
+  ansible.builtin.copy:
+    dest: /etc/postgresql-common/createcluster.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: "create_main_cluster = false\n"
+
+- name: Install PostgreSQL, HAProxy and runtime dependencies
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_major }}={{ package_versions.postgresql }}"
+      - "postgresql-client-{{ postgresql_major }}={{ package_versions.postgresql }}"
+      - "postgresql-contrib-{{ postgresql_major }}={{ package_versions.postgresql }}"
+      - python3-psycopg2
+      - haproxy
+      - python3-venv
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Patroni virtual environment with access to distro psycopg2
+  ansible.builtin.command:
+    argv: [python3, -m, venv, --system-site-packages, /opt/phase8-patroni]
+    creates: /opt/phase8-patroni/bin/python
+
+- name: Install pinned Patroni with etcd v3 support
+  ansible.builtin.pip:
+    name: "patroni[etcd3]=={{ postgresql_ha_versions.patroni }}"
+    virtualenv: /opt/phase8-patroni
+    state: present
+
+- name: Create etcd install and data directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "/opt/etcd/{{ postgresql_ha_versions.etcd }}", owner: root, group: root, mode: "0755" }
+    - { path: /var/lib/etcd, owner: etcd, group: etcd, mode: "0700" }
+    - { path: /etc/patroni, owner: root, group: postgres, mode: "0750" }
+    - { path: /etc/phase8-postgresql, owner: root, group: root, mode: "0755" }
+    - { path: /usr/local/lib/phase8-postgresql, owner: root, group: root, mode: "0755" }
+    - { path: /var/lib/alloy/textfile, owner: root, group: alloy, mode: "0750" }
+
+- name: Create PostgreSQL backup staging directory
+  ansible.builtin.file:
+    path: "{{ postgresql_backup_temp_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: Create PostgreSQL log directory readable by Alloy
+  ansible.builtin.file:
+    path: /var/log/postgresql/phase8
+    state: directory
+    owner: postgres
+    group: adm
+    mode: "2750"
+
+- name: Download pinned etcd ARM64 release
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/v{{ postgresql_ha_versions.etcd }}/etcd-v{{ postgresql_ha_versions.etcd }}-linux-arm64.tar.gz"
+    dest: "/var/tmp/etcd-v{{ postgresql_ha_versions.etcd }}-linux-arm64.tar.gz"
+    checksum: "sha256:{{ postgresql_ha_versions.etcd_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Extract pinned etcd release
+  ansible.builtin.unarchive:
+    src: "/var/tmp/etcd-v{{ postgresql_ha_versions.etcd }}-linux-arm64.tar.gz"
+    dest: "/opt/etcd/{{ postgresql_ha_versions.etcd }}"
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    creates: "/opt/etcd/{{ postgresql_ha_versions.etcd }}/etcd"
+
+- name: Link etcd command-line tools
+  ansible.builtin.file:
+    src: "/opt/etcd/{{ postgresql_ha_versions.etcd }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop: [etcd, etcdctl, etcdutl]
+
+- name: Permit PostgreSQL to traverse the mounted data-disk root when selected
+  ansible.builtin.file:
+    path: "{{ postgresql_data_disk_mount }}"
+    state: directory
+    owner: root
+    group: postgres
+    mode: "0710"
+  when: (hostvars[inventory_hostname].data_disk_size_gb | default(0) | int) > 0
+
+- name: Ensure PostgreSQL data directory exists with safe ownership
+  ansible.builtin.file:
+    path: "{{ postgresql_data_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: Install runtime config template and secret-render helper
+  ansible.builtin.template:
+    src: runtime.json.j2
+    dest: /etc/phase8-postgresql/runtime.json
+    owner: root
+    group: postgres
+    mode: "0640"
+
+- name: Install root-only PostgreSQL configuration and verification helpers
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - { src: prepare_runtime.py, dest: /usr/local/lib/phase8-postgresql/prepare_runtime.py }
+    - { src: download-base-backup, dest: /usr/local/sbin/phase8-postgresql-download-base-backup }
+    - { src: verify_cluster.py, dest: /usr/local/sbin/phase8-postgresql-verify-cluster }
+    - { src: init_schema.py, dest: /usr/local/sbin/phase8-postgresql-init-schema }
+
+- name: Install PostgreSQL archive helpers executable by the postgres service account
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: postgres
+    mode: "0750"
+  loop:
+    - { src: postgres_blob.py, dest: /usr/local/lib/phase8-postgresql/postgres_blob.py }
+    - { src: run_base_backup.py, dest: /usr/local/sbin/phase8-postgresql-base-backup }
+    - { src: archive-wal, dest: /usr/local/sbin/phase8-postgresql-archive-wal }
+    - { src: restore-wal, dest: /usr/local/sbin/phase8-postgresql-restore-wal }
+
+- name: Load softdog module for Patroni leader fencing
+  ansible.builtin.command:
+    argv: [modprobe, softdog]
+  changed_when: false
+  when: postgresql_require_watchdog | bool
+
+- name: Persist softdog module loading across reboots
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/phase8-softdog.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: "softdog\n"
+  when: postgresql_require_watchdog | bool
+
+- name: Allow postgres service account to access the watchdog device
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/60-phase8-watchdog.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: "KERNEL==\"watchdog\", GROUP=\"watchdog\", MODE=\"0660\"\n"
+  when: postgresql_require_watchdog | bool
+
+- name: Reload udev rules before Patroni starts
+  ansible.builtin.command:
+    argv: [udevadm, control, --reload-rules]
+  changed_when: false
+  when: postgresql_require_watchdog | bool
+
+- name: Trigger watchdog device permissions
+  ansible.builtin.command:
+    argv: [udevadm, trigger, --subsystem-match=misc]
+  changed_when: false
+  when: postgresql_require_watchdog | bool
+
+- name: Require a watchdog device before allowing Patroni to manage writable primary
+  ansible.builtin.stat:
+    path: /dev/watchdog
+  register: postgresql_watchdog_device
+  when: postgresql_require_watchdog | bool
+
+- name: Fail closed if leader watchdog is unavailable
+  ansible.builtin.assert:
+    that:
+      - postgresql_watchdog_device.stat.exists
+      - postgresql_watchdog_device.stat.ischr
+    fail_msg: >-
+      No usable /dev/watchdog exists. Patroni is configured with watchdog mode=required
+      to reduce split-brain risk; do not silently disable fencing.
+  when: postgresql_require_watchdog | bool
+
+- name: Configure etcd cluster service
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Open PostgreSQL HA control and replication ports on the tailnet interface
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: tailscale0
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ postgresql_port }}"
+    - "{{ postgresql_patroni_api_port }}"
+    - "{{ postgresql_etcd_client_port }}"
+    - "{{ postgresql_etcd_peer_port }}"
+
+- name: Reload service manager for PostgreSQL HA units
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Start etcd cluster members
+  ansible.builtin.systemd:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for local etcd TLS client endpoint
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ postgresql_etcd_client_port }}"
+    timeout: 60
+
+- name: Verify the three-member etcd quorum
+  ansible.builtin.command:
+    argv:
+      - etcdctl
+      - "--endpoints={{ groups['database'] | map('extract', hostvars, 'tailscale_dns_name') | map('regex_replace', '$', ':' ~ postgresql_etcd_client_port) | map('regex_replace', '^', 'https://') | join(',') }}"
+      - "--cacert=/etc/ssl/certs/ca-certificates.crt"
+      - "--cert=/etc/phase8/tls/tls.crt"
+      - "--key=/etc/phase8/tls/tls.key"
+      - endpoint
+      - health
+  register: etcd_health
+  retries: 10
+  delay: 3
+  until: etcd_health.rc == 0
+  changed_when: false
+  run_once: true
+
+- name: Render secret-bearing PostgreSQL, app and HAProxy configuration at runtime
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, /usr/local/lib/phase8-postgresql/prepare_runtime.py]
+  register: runtime_config_render
+  changed_when: runtime_config_render.stdout == "updated"
+  no_log: true
+
+- name: Configure Patroni systemd service
+  ansible.builtin.template:
+    src: patroni.service.j2
+    dest: /etc/systemd/system/patroni.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Disable Debian's standalone PostgreSQL systemd service
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: false
+    state: stopped
+
+- name: Start Patroni on all three database members
+  ansible.builtin.systemd:
+    name: patroni
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for local Patroni REST TLS endpoint
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ postgresql_patroni_api_port }}"
+    timeout: 180
+
+- name: Ensure local PostgreSQL HAProxy endpoint is enabled and started
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Restart HAProxy only when generated runtime configuration changed
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+  when: runtime_config_render.stdout == "updated"
+
+- name: Verify exactly one primary and two replicas cluster-wide
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, /usr/local/sbin/phase8-postgresql-verify-cluster]
+  register: postgresql_cluster_health
+  retries: 30
+  delay: 5
+  until: postgresql_cluster_health.rc == 0
+  changed_when: false
+  run_once: true
+
+- name: Wait for local HAProxy to route to writable primary
+  ansible.builtin.command:
+    argv: [pg_isready, -h, 127.0.0.1, -p, "{{ postgresql_haproxy_port }}"]
+  register: postgresql_haproxy_ready
+  retries: 20
+  delay: 3
+  until: postgresql_haproxy_ready.rc == 0
+  changed_when: false
+
+- name: Create PostgreSQL application schema and seed demo inventory once
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, /usr/local/sbin/phase8-postgresql-init-schema]
+  register: postgresql_schema_init
+  changed_when: postgresql_schema_init.rc == 0
+  run_once: true
+  no_log: true
+
+- name: Install daily verified base backup scheduler on each cluster member
+  ansible.builtin.cron:
+    name: "phase8 PostgreSQL base backup (primary only)"
+    user: postgres
+    minute: "{{ postgresql_backup_cron.split()[0] }}"
+    hour: "{{ postgresql_backup_cron.split()[1] }}"
+    day: "{{ postgresql_backup_cron.split()[2] }}"
+    month: "{{ postgresql_backup_cron.split()[3] }}"
+    weekday: "{{ postgresql_backup_cron.split()[4] }}"
+    job: "/usr/local/sbin/phase8-postgresql-base-backup >> /var/log/postgresql/phase8-backup.log 2>&1"
+
+- name: Install PostgreSQL HA health probe script
+  ansible.builtin.template:
+    src: health-probe.sh.j2
+    dest: /usr/local/sbin/phase8-postgresql-health-probe
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install PostgreSQL HA health probe systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: health-probe.service.j2, dest: /etc/systemd/system/phase8-postgresql-health-probe.service }
+    - { src: health-probe.timer.j2, dest: /etc/systemd/system/phase8-postgresql-health-probe.timer }
+
+- name: Enable PostgreSQL HA metrics timer
+  ansible.builtin.systemd:
+    name: phase8-postgresql-health-probe.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Collect initial PostgreSQL HA metrics
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/phase8-postgresql-health-probe]
+  changed_when: false

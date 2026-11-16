@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh Cloudflare Tunnel Token from Key Vault and restart connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/cloudflared/refresh_tunnel_token.py
+ExecStartPost=/usr/bin/systemctl try-restart cloudflared.service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/cloudflared

@@ -18,6 +18,17 @@ Use the Entra app for the matching environment from document 03. Add these **sec
 
 `SSH_PUBLIC_KEY` must contain the public half of the key pair, e.g. the complete single-line content of the `.pub` file. Never put the private key in these Terraform environments or in the repository. This is the key Azure installs during VM provisioning; the documented normal CM access path is Tailscale SSH, and this lab does not configure/verify a separate private-key recovery path.
 
+### Phase 8 VM/identity variables
+
+Add the following **variables** to the named protected Environments before running the revised plan workflows:
+
+| Environment | Additional variables |
+|---|---|
+| `terraform-identity-plan-ha`, `terraform-identity-apply-ha` | `AZURE_KEY_VAULT_NAME` |
+| `terraform-vmresource-plan-ha`, `terraform-vmresource-apply-ha`, `terraform-destroy-ha` | `AZURE_KEY_VAULT_NAME`, `LOKI_STORAGE_ACCOUNT_NAME`, `WORKLOAD_MANAGED_IDENTITY_NAME`, `UBUNTU_IMAGE_VERSION`, `TAILSCALE_PACKAGE_VERSION`, `AZURE_CLI_VERSION`, `TAILSCALE_WORKLOAD_CLIENT_ID`, `TAILSCALE_WORKLOAD_AUDIENCE` |
+
+Keep `SSH_PUBLIC_KEY`: it is required by Azure to provision the VM account. Tailscale SSH is the normal administration/Ansible path; do not configure a CI private SSH key. `UBUNTU_IMAGE_VERSION`, `TAILSCALE_PACKAGE_VERSION`, and `AZURE_CLI_VERSION` must be exact versions supported by the selected Azure region/Ubuntu release. The workload client ID/audience are public WIF identifiers, not bearer credentials. The Terraform workflows consume these values; they never accept the Cloudflare API Token.
+
 The destroy workflow uses `terraform-vmresource-plan-ha` to create a destroy plan, then pauses at the protected `terraform-destroy-ha` Environment before applying that exact saved plan. The plan Environment must have the Azure plan app and the VM-resource variables/secrets listed above. If `terraform-vmresource-plan-ha` has required reviewers, that first approval permits plan generation only; it does not approve destruction. Review the published plan summary, then approve the protected `terraform-destroy-ha` Environment to authorize applying that exact artifact. Restrict both Environments to `main`. The plan identity needs the documented state access and read permissions, while the destroy identity is authorized to delete module-02 resources.
 
 ## Tailscale environments

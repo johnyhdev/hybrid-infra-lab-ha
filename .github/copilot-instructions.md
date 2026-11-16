@@ -1,0 +1,11 @@
+# Workspace Agent Instructions
+
+- Start every repository task by consulting `PROJECT-STATUS.md`, but read only the goal/current-status summary and the source-map row relevant to the task. Re-read other sections only if the task crosses those areas or status changed.
+- Read only the source files named by that map and directly related files required for the requested change. Do not scan the repository broadly or re-read unrelated files.
+- Do not read or use `docs/**` or `.github/agents/**` as implementation context unless the user explicitly requests those sources. Those materials are retired from the agent workflow; do not rely on cached/copied content from them.
+- The status file describes current code separately from planned direction. Verify the actual target file before editing; never report planned work as implemented or tested.
+- Preserve the agreed direction: low added cost; no unnecessary paid services, VM, data disk, or HSM; CM/workload HA; least privilege, OIDC/managed identity, private-by-default access, TLS, and no committed/runtime secret exposure. Explain cost-impacting proposals and do not deploy/apply infrastructure without explicit user authorization.
+- Make the smallest relevant change, run the focused validation available for it, and report any untested runtime or Azure behavior.
+- Avoid test-driven repository rereads: use `bash ansible/scripts/validate-repo.sh <profile>` for focused validation (`terraform-identity`, `terraform-vmresource`, `ansible`, `ansible-security`, `python`, or `shell`). Use the full default profile for cross-cutting changes; CI parity also requires the separate `ansible-security` profile (the GitHub workflow runs Checkov separately). The script's scope is authoritative; do not rerun equivalent lint/syntax/tests already included unless a related file changed after the run.
+- Treat successful test output from the current worktree as evidence; do not reopen source files just to repeat test commands. If a check fails, inspect only the failing file/diagnostic and its direct dependency.
+- When implementation status, source locations, or an architecture decision changes, update `PROJECT-STATUS.md` and/or `IMPLEMENTATION-DECISIONS.md` in the same change. Record unresolved tradeoffs as open decisions rather than silently choosing a paid or availability-impacting design.

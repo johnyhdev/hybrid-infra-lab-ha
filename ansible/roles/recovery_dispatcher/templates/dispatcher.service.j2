@@ -1,0 +1,24 @@
+[Unit]
+Description=Phase 8 fixed-action recovery dispatcher
+After=network-online.target phase8-dispatcher-token.service tailscaled.service
+Requires=phase8-dispatcher-token.service
+
+[Service]
+Type=simple
+User=phase8-dispatcher
+Group=phase8-dispatcher
+SupplementaryGroups=recovery-dispatcher
+ExecStart=/usr/bin/python3 /usr/local/lib/phase8-dispatcher/dispatcher.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/phase8-dispatcher /run/phase8-dispatcher
+ReadWritePaths=/var/lib/phase8-dispatcher /var/log/phase8-dispatcher
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

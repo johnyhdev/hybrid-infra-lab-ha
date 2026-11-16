@@ -1,3 +1,6 @@
 ---
 
 ansible_user: azureadmin
+tailscale_tls_restart_nginx: false
+loki_storage_container: loki
+monitoring_loki_sha256_arm64: "bd2354ac19de80266b970171e62e203de9b751739475e35513b4f2dd1438d3aa"

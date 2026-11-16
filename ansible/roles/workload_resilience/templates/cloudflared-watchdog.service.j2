@@ -1,0 +1,8 @@
+[Unit]
+Description=Keep unhealthy workload ingress connectors out of the Cloudflare Tunnel
+After=network-online.target nginx.service cloudflared.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/phase8-cloudflared-readiness-watchdog

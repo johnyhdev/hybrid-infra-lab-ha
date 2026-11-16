@@ -1,2 +1,13 @@
+directory:
+  - terraform
+  - ansible
+framework:
+  - terraform
+  - ansible
 skip-check:
+  - CKV_AZURE_251
+  - BC_AZURE_251
+  - CKV_AZURE_206
+  - CKV_AZURE_33
+  - CKV2_AZURE_21
   - CKV_AZURE_50

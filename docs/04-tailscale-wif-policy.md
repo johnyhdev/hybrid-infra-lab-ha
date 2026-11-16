@@ -14,9 +14,9 @@ Get-Content .\tailscale\policy.hujson -Raw | Set-Clipboard
 ```
 
 2. Open Tailscale Admin Console → **Access controls** → policy **JSON editor**. Select all of the current policy text, paste the clipboard contents, and run the editor's **Preview/Validate** action before saving. Resolve any syntax or validation errors; do not save a partial policy.
-3. Review the effective policy before applying. The repository version defines `tag:cm` and `tag:ci`, auto-approves route `10.20.2.0/24`, permits `tag:ci` TCP 22/443 access to the CM and workload subnet, and allows Tailscale SSH to the CM as `azureadmin` for `autogroup:admin` and `tag:ci`. Confirm that these grants match your intended access scope.
-4. Save/apply the policy in the Admin Console. Confirm that the editor reports a successful validation/save and that the saved policy includes both tags, the expected route, and SSH grants. A Git commit alone does not apply the initial tailnet policy.
-5. If Terraform CIDRs or host roles change later, update the policy and Terraform NSGs together, validate the complete policy again, and only then merge the change. The policy GitOps workflow tests/applies later changes; it does not automatically provision or repair a missing initial policy.
+3. Review the effective policy before applying. The repository version defines `tag:cm`, `tag:workload`, and `tag:ci`; it does not advertise a subnet route. Admins can SSH to both roles, CI can SSH to control managers only, and control managers can SSH to workloads. Monitoring access and peer gossip are restricted to the listed control-manager grants. Confirm the whole policy matches your access model.
+4. Save/apply the policy in the Admin Console. Confirm successful validation/save and that the saved policy includes all three tags and SSH grants. A Git commit alone does not apply the initial tailnet policy.
+5. If host roles or monitoring ports change later, update the policy and Terraform NSGs together, validate the complete policy again, and only then merge. The policy GitOps workflow tests/applies later changes; it does not provision devices.
 
 The `tailscale-policy-ha` GitHub Environment is used by both PR tests and main-branch apply. Required reviewers on this environment may block PR tests as well; configure protection deliberately.
 
@@ -44,13 +44,13 @@ Save the credential, record its Client ID and exact Audience separately from the
 
 ## Azure managed identity credential
 
-After the identity module creates `id-cm-ha`, retrieve its identifiers:
+After the identity module creates `id-cm-ha` and `id-workload-ha`, retrieve each identity's identifiers:
 
 ```powershell
 az identity show --resource-group "<LAB_RESOURCE_GROUP>" --name "<CM_IDENTITY_NAME>" --query "{tenantId:tenantId,principalId:principalId,clientId:clientId}" --output table
 ```
 
-Create a Tailscale trust credential for Microsoft Entra/Azure in the Tailscale workload identity federation area. Select the Entra/Azure identity-provider option offered by the current console; do not choose GitHub for this credential:
+Create separate Tailscale trust credentials for Microsoft Entra/Azure in the Tailscale workload identity federation area. Select the Entra/Azure identity-provider option offered by the current console; do not choose GitHub for these credentials:
 
 - Description: azure-vm-cm-ha
 - Issuer: the exact Microsoft Entra issuer URL required/displayed by the current Tailscale UI for your tenant. Copy it from the UI; do not guess the tenant/version URL.
@@ -58,7 +58,9 @@ Create a Tailscale trust credential for Microsoft Entra/Azure in the Tailscale w
 - Audience: the exact audience required for Azure token exchange by the Tailscale credential (default: **fb60f99c-7a34-4190-8149-302f77469936**). Cloud-init requests a Managed Identity token for resource `api://AzureADTokenExchange` and passes it to Tailscale. Never paste a bearer JWT/access token into configuration, GitHub, or logs.
 - Permissions SCOPES (KEY AUTH_KEYS): allow the required machine enrollment for `tag:cm` only. Do not allow GitHub policy updates or `tag:ci` enrollment through this identity.
 
-Save the credential and verify its issuer, subject, audience, and `tag:cm` scope in the Admin Console. Record the Tailscale CM credential Client ID and Audience. Set them as GitHub Variables available to `terraform-vmresource-plan-ha`, `terraform-vmresource-apply-ha`, and `terraform-destroy-ha`. Terraform passes them to cloud-init, where the VM obtains an Azure Managed Identity token and joins Tailscale. End-to-end verification is that `vm-cm-01` appears online with `tag:cm` and advertises the workload route. If the live console offers values or scopes different from these expectations, stop and reconcile the current Tailscale configuration before deploying.
+Create the corresponding workload trust credential using the **principal ID** of `id-workload-ha` as its subject and restrict machine enrollment to `tag:workload`. It uses a separate Client ID/Audience pair from the CM credential. Neither identity should advertise a subnet route.
+
+Save and verify both credentials' issuer, subject, audience, and tag scope. Record the Tailscale CM and workload credential Client IDs/Audiences. Set them as GitHub Variables available to the VM plan/apply/destroy environments. Terraform passes them to cloud-init; each VM uses its attached Azure Managed Identity to join with its own tag. End-to-end verification is that both `vm-cm-*` nodes are online with `tag:cm`, and all `vm-workload-*` nodes are online with `tag:workload`, without advertised routes. If the live console differs from these expectations, reconcile before deploying.
 
 ## Keep the identities distinct
 
@@ -67,6 +69,13 @@ Save the credential and verify its issuer, subject, audience, and `tag:cm` scope
 | `TAILSCALE_POLICY_CLIENT_ID`, `TAILSCALE_POLICY_AUDIENCE`, `TAILSCALE_TAILNET` | Policy test and apply | Variables in `tailscale-policy-ha` |
 | `TAILSCALE_CI_CLIENT_ID`, `TAILSCALE_CI_AUDIENCE` | CI runner joins the tailnet | Secrets in `tailscale-ci-ha` |
 | `TAILSCALE_CM_CLIENT_ID`, `TAILSCALE_CM_AUDIENCE` | Control-manager VM WIF | Variables in VM plan/apply/destroy environments |
+| `TAILSCALE_WORKLOAD_CLIENT_ID`, `TAILSCALE_WORKLOAD_AUDIENCE` | Workload VM WIF | Variables in VM plan/apply/destroy environments |
 | `id-cm-ha` principal ID | Subject in Azure-to-Tailscale trust | Not a Tailscale client ID; not a GitHub secret |
 
-All things can be verified that the policy test succeeds, the CM appears online with `tag:cm`, and its advertised workload route is approved. Now continue with [05 — GitHub Environments](05-github-environments.md).
+Verify the policy test succeeds and both CM and workload nodes enroll with the expected tags. Continue with [05 — GitHub Environments](05-github-environments.md).
+
+## Phase 8 workload identity and management
+
+The VM Terraform root attaches a dedicated workload Managed Identity and cloud-init enrolls workloads with `tag:workload`. Tailscale SSH is the normal operator/Ansible access path. Azure SSH public keys remain only as required VM creation inputs; no SSH private key is deployed to workloads or CI.
+
+For Cloudflare Tunnel, the workload Managed Identity has read access only to the Key Vault secret containing the Cloudflare API Token. This is a persistent credential exception, not part of the Tailscale WIF flow. Never put its value in this policy, Git, Terraform state, cloud-init, or logs. See the [external setup checklist](phase-8/EXTERNAL-SETUP.md) and [Phase 8 blueprint](phase-8/PHASE-8-BLUEPRINT.md).

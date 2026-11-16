@@ -1,0 +1,18 @@
+---
+# PostgreSQL HA configuration contains identifiers only; all credential values live in Key Vault.
+postgresql_database_name: phase8
+postgresql_app_user: phase8_app
+postgresql_backup_user: phase8_backup
+postgresql_replication_user: replicator
+postgresql_superuser: postgres
+postgresql_key_vault_uri: "{{ cloudflare_key_vault_uri }}"
+postgresql_secret_names:
+  superuser: postgresql-superuser-password
+  replication: postgresql-replication-password
+  app: postgresql-app-password
+  backup: postgresql-backup-password
+  patroni_api: postgresql-patroni-api-password
+postgresql_etcd_initial_state: new
+postgresql_etcd_memory_limit: 256M
+postgresql_patroni_memory_limit: 384M
+postgresql_backup_restore_test_required: true

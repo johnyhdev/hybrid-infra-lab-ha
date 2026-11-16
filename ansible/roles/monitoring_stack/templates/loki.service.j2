@@ -1,0 +1,23 @@
+[Unit]
+Description=Grafana Loki log store
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=loki
+Group=loki
+ExecStart=/usr/local/bin/loki -config.file=/etc/loki/config.yml -target=all
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/loki
+
+[Install]
+WantedBy=multi-user.target

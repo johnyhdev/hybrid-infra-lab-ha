@@ -1,0 +1,7 @@
+[Unit]
+Description=Collect private workload and Cloudflare connector health metrics
+After=network-online.target cloudflared.service nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/phase8-workload-health-probe

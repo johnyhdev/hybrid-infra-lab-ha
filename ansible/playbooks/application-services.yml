@@ -1,0 +1,13 @@
+---
+- name: Deploy workload application and ingress after database health passes
+  hosts: workload
+  become: true
+  serial: "{{ workload_rollout_batch | default('25%') }}"
+  any_errors_fatal: true
+
+  roles:
+    - sample_app
+    - nginx
+    - role: cloudflared
+      when: inventory_hostname in groups['cloudflare_ingress']
+    - workload_resilience

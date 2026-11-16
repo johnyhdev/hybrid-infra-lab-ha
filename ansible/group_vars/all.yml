@@ -4,3 +4,91 @@ ansible_user: azureadmin
 ansible_python_interpreter: /usr/bin/python3
 
 timezone: Asia/Ho_Chi_Minh
+vnet_cidr: 10.20.0.0/16
+control_plane_subnet_cidr: 10.20.1.0/24
+workload_plane_subnet_cidr: 10.20.2.0/23
+tailscale_ipv4_cidr: 100.64.0.0/10
+
+# Phase 8 service ports and private backend proxy.
+monitoring_enabled: true
+monitoring_prometheus_port: 9090
+monitoring_alertmanager_port: 9093
+monitoring_grafana_port: 3000
+monitoring_loki_port: 3100
+monitoring_loki_proxy_port: 3101
+monitoring_prometheus_scrape_interval: 15s
+monitoring_prometheus_scrape_timeout: 10s
+monitoring_prometheus_evaluation_interval: 15s
+monitoring_prometheus_retention_time: 7d
+monitoring_prometheus_retention_size: 5GB
+monitoring_data_dir: /var/lib/phase8-monitoring
+postgresql_ha_enabled: true
+postgresql_cluster_name: phase8-postgres
+postgresql_port: 5432
+postgresql_haproxy_port: 5433
+postgresql_patroni_api_port: 8008
+postgresql_etcd_client_port: 2379
+postgresql_etcd_peer_port: 2380
+postgresql_archive_timeout: 5min
+postgresql_backup_retention_days: 7
+postgresql_backup_cron: "15 2 * * *"
+postgresql_backup_archive_timeout: 5min
+postgresql_backup_temp_dir: /var/lib/postgresql/phase8-backup
+postgresql_data_disk_mount: /mnt/phase8-data
+postgresql_rpo_failover_target: "0 acknowledged transactions on a single member loss (synchronous mode; acceptance testing required)"
+postgresql_require_watchdog: true
+postgresql_rto_failover_target_seconds: 300
+postgresql_rpo_pitr_target_seconds: 300
+postgresql_rto_pitr_target_seconds: 7200
+monitoring_dispatcher_port: 9088
+monitoring_recovery_cooldown_seconds: 300
+monitoring_dispatcher_enabled: true
+workload_proxy_port: 8081
+workload_web_port: 8443
+sample_app_port: 8082
+cloudflared_metrics_port: 2000
+cloudflared_watchdog_interval: 15s
+cloudflared_watchdog_probe_timeout: 12
+cloudflared_watchdog_failure_checks: 3
+cloudflared_watchdog_recovery_successes: 3
+
+# Critical OS package versions. Values are pinned where the OS repo supports it.
+package_versions:
+  nginx: "1.24.0-2ubuntu7"
+  python3: "3.12.3-1ubuntu2"
+  postgresql: "16.4-1.pgdg24.04+1"
+postgresql_major: "16"
+postgresql_ha_versions:
+  patroni: "4.1.5"
+  etcd: "3.7.3"
+  etcd_sha256: "ce4c08f5f43d99f0d1993552ce2906829c0366077a97e5e52529337f151a29fb"
+monitoring_versions:
+  prometheus: "2.54.1"
+  alertmanager: "0.27.0"
+  grafana: "11.3.0"
+  loki: "3.5.0"
+  alloy: "1.5.0"
+
+# Existing shared account; PostgreSQL backups use a separate container.
+loki_storage_account_name: "lokistorage26111010"
+postgresql_backup_container: postgres-backups
+
+workload_proxy_connect_timeout: 2s
+workload_proxy_read_timeout: 15s
+workload_proxy_send_timeout: 15s
+workload_proxy_next_upstream_timeout: 10s
+workload_rollout_batch: "25%"
+workload_rollout_canary_observation_seconds: 30
+workload_rollout_cpu_load_per_core_max: 1.5
+workload_rollout_min_memory_available_percent: 10
+workload_rollout_max_root_disk_used_percent: 85
+
+monitoring_control_group: control
+monitoring_workload_group: workload
+monitoring_alert_severities: [info, warning, critical]
+monitoring_recovery_action_ids:
+  - restart_nginx
+  - restart_alloy
+  - stop_cpu_test_service
+monitoring_cpu_test_service: phase8-cpu-test
+

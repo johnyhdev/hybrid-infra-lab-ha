@@ -1,0 +1,9 @@
+---
+- name: Configure the three-node PostgreSQL HA cluster
+  hosts: database
+  become: true
+  serial: 3
+  any_errors_fatal: true
+
+  roles:
+    - postgresql_ha

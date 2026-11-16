@@ -1,0 +1,7 @@
+---
+- name: Restart Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+  when: tailscale_tls_restart_nginx | default(true) | bool
+

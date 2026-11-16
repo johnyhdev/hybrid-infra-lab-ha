@@ -1,0 +1,115 @@
+logging {
+  level = "info"
+  format = "logfmt"
+}
+
+prometheus.exporter.unix "system" {
+  set_collectors = [
+    "cpu",
+    "diskstats",
+    "filesystem",
+    "hwmon",
+    "loadavg",
+    "meminfo",
+    "netdev",
+    "pressure",
+    "stat",
+    "textfile",
+    "thermal_zone",
+    "vmstat",
+  ]
+
+  disk {
+    device_exclude = "^(ram|loop|fd)\\d+$"
+  }
+
+  filesystem {
+    fs_types_exclude = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+    mount_points_exclude = "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+)($|/)"
+  }
+
+  netdev {
+    device_exclude = "^lo$"
+  }
+
+  textfile {
+    directory = "/var/lib/alloy/textfile"
+  }
+}
+
+prometheus.scrape "system" {
+  job_name        = "alloy_system"
+  targets         = prometheus.exporter.unix.system.targets
+  scrape_interval = "{{ monitoring_prometheus_scrape_interval }}"
+  scrape_timeout  = "{{ monitoring_prometheus_scrape_timeout }}"
+  forward_to      = [prometheus.relabel.system.receiver]
+}
+
+prometheus.relabel "system" {
+  forward_to = [prometheus.remote_write.cm_pair.receiver]
+
+  rule {
+    action        = "replace"
+    target_label  = "instance"
+    replacement   = "{{ inventory_hostname }}"
+  }
+
+  rule {
+    action = "keep"
+    source_labels = ["__name__"]
+    regex = "(up|node_cpu_seconds_total|node_load1|node_memory_(MemAvailable|MemTotal|SwapFree|SwapTotal)_bytes|node_pressure_(cpu|memory|io)_(waiting|stalled)_seconds_total|node_filesystem_(avail|size)_bytes|node_filesystem_readonly|node_filesystem_device_error|node_disk_(reads|writes)_completed_total|node_disk_(read|written)_bytes_total|node_disk_(read|write)_time_seconds_total|node_disk_io_(time|time_weighted)_seconds_total|node_disk_io_now|node_network_(receive|transmit)_(bytes|errs|drop)_total|node_hwmon_temp_celsius|node_thermal_zone_temp(_celsius)?|node_scrape_collector_success|phase8_.*)"
+  }
+}
+
+prometheus.remote_write "cm_pair" {
+{% for host in groups['control'] %}
+  endpoint {
+    name = "{{ host }}"
+    url = "https://{{ hostvars[host].tailscale_dns_name }}:{{ monitoring_prometheus_port }}/api/v1/write"
+
+    tls_config {
+      ca_file = "/etc/ssl/certs/ca-certificates.crt"
+      server_name = "{{ hostvars[host].tailscale_dns_name }}"
+      insecure_skip_verify = false
+    }
+  }
+{% endfor %}
+
+  wal {
+    truncate_frequency = "2h"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "24h"
+  }
+}
+
+loki.write "phase8" {
+  endpoint {
+    url = "http://127.0.0.1:{{ monitoring_loki_proxy_port }}/loki/api/v1/push"
+    name = "phase8-loki-proxy"
+    min_backoff_period = "1s"
+    max_backoff_period = "30s"
+    max_backoff_retries = 0
+  }
+
+  wal {
+    enabled = true
+    max_segment_age = "24h"
+  }
+}
+
+loki.source.file "system_logs" {
+  targets = [
+    {"__path__" = "/var/log/syslog", "job" = "syslog", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/auth.log", "job" = "auth", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/cloud-init-output.log", "job" = "cloud-init", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/nginx/*.log", "job" = "nginx", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/postgresql/phase8/*.log", "job" = "postgresql", "host" = "{{ inventory_hostname }}"},
+    {"__path__" = "/var/log/ansible/site.log", "job" = "ansible", "host" = "{{ inventory_hostname }}"}
+  ]
+  forward_to = [loki.write.phase8.receiver]
+  tail_from_end = true
+  file_match {
+    enabled = true
+    sync_period = "15s"
+  }
+}

@@ -1,12 +1,23 @@
 name: Ansible CD Deploy HA
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ansible/**"
   workflow_run:
     workflows: ["Terraform VM Resource Apply HA"]
     types:
       - completed
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Optional full commit SHA to redeploy after environment approval
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -19,7 +30,7 @@ jobs:
   # ==========================================
   notify-waiting:
     name: Notify PR Waiting Approval
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     outputs:
       pr_number: ${{ steps.find-pr.outputs.PR_NUMBER }}
@@ -27,12 +38,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Find Merged PR
         id: find-pr
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           echo "Finding PR for commit: $COMMIT_SHA"
           PR_JSON=$(gh api \
@@ -41,11 +54,11 @@ jobs:
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
 
-          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             PR_NUMBER=$(gh pr list --state merged --base main --limit 1 --json number --jq '.[0].number')
           fi
 
-          if [ -z "$PR_NUMBER" ] \vert{}\vert{} [ "$PR_NUMBER" = "null" ]; then
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             echo "No pull request found."
             exit 0
           fi
@@ -71,12 +84,37 @@ jobs:
   deploy:
     name: Ansible Continuous Deployment
     needs: notify-waiting
+    # Khắc phục lỗi: Cho phép chạy khi push trực tiếp HOẶC khi notify-waiting thành công qua workflow_run
+    if: ${{ always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || needs.notify-waiting.result == 'success') }}
     runs-on: ubuntu-24.04
     environment: tailscale-ci-ha # Requires approval if configured in GitHub
+    env:
+      SOURCE_SHA: ${{ inputs.release_sha || github.event.workflow_run.head_sha || github.sha }}
+    concurrency:
+      group: ansible-ha-deploy
+      cancel-in-progress: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Verify triggering commit
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$SOURCE_SHA"
+          echo "Deploying reviewed source SHA $ACTUAL_SHA"
+
+      - name: Package immutable approved source release
+        run: |
+          mkdir -p "$RUNNER_TEMP/phase8-release"
+          git archive --format=tar "$SOURCE_SHA" | tar -xf - -C "$RUNNER_TEMP/phase8-release"
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/phase8-release/.phase8-release-sha"
+          tar -czf "$RUNNER_TEMP/phase8-release.tar.gz" -C "$RUNNER_TEMP/phase8-release" .
+          (cd "$RUNNER_TEMP" && sha256sum phase8-release.tar.gz > phase8-release.tar.gz.sha256)
 
       - name: Connect to Tailscale Mesh Network via OIDC
         uses: tailscale/github-action@v4
@@ -88,52 +126,72 @@ jobs:
       - name: Resolve CM Node Hostname
         id: resolve_node
         run: |
-          echo "Resolving CM node targeted with tag:cm..."
-          MAX_RETRIES=30
-          RETRY_COUNT=0
-          TARGET_IP=""
-
-          until [ -n "$TARGET_IP" ]; do
-            TARGET_IP=$(tailscale status --json | jq -r '.Peer[] | select(.Tags[]? == "tag:cm" and .Online == true) | .TailscaleIPs[0]' | head -n 1)
-
-            if [ -n "$TARGET_IP" ] && [ "$TARGET_IP" != "null" ]; then
-              echo "Found CM Node IP: $TARGET_IP"
-              echo "cm_ip=$TARGET_IP" >> $GITHUB_OUTPUT
-              break
-            fi
-
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-              echo "ERROR: Timed out waiting for CM Node with tag:cm to register on Tailscale."
-              exit 1
-            fi
-
-            echo "CM Node with tag:cm not online yet. Retrying in 5s... ($RETRY_COUNT/$MAX_RETRIES)"
-            sleep 5
-          done
+          mapfile -t CM_IPS < <(tailscale status --json | jq -r '.Peer[]? | select((.Tags[]? == "tag:cm") and .Online == true) | .TailscaleIPs[0]')
+          if [ "${#CM_IPS[@]}" -eq 0 ]; then
+            echo "No online CM nodes with tag:cm are currently available."
+            exit 1
+          fi
+          # JSON string hóa mảng IP an toàn tuyệt đối qua jq
+          CM_IPS_JSON=$(printf '%s\n' "${CM_IPS[@]}" | jq -R . | jq -s .)
+          echo "cm_ips=$CM_IPS_JSON" >> "$GITHUB_OUTPUT"
 
       - name: Wait for CM Node Cloud-Init Completion
+        id: cm-ready
         run: |
-          TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
-          echo "Waiting for SSH service and Cloud-Init bootstrapping on IP: $TARGET_IP..."
+          mapfile -t CM_IPS < <(echo '${{ steps.resolve_node.outputs.cm_ips }}' | jq -r '.[]')
           MAX_RETRIES=30
           RETRY_COUNT=0
+          READY_IPS=()
           
-          until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 azureadmin@$TARGET_IP "test -f /var/log/cloud-init-done.tag && test -d /home/azureadmin/hybrid-infra-lab-ha" 2>/dev/null; do
+          until [ "${#READY_IPS[@]}" -eq "${#CM_IPS[@]}" ]; do
+            READY_IPS=()
+            for candidate in "${CM_IPS[@]}"; do
+              if ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "azureadmin@$candidate" "test -f /var/log/cloud-init-done.tag && { test -d /home/azureadmin/hybrid-infra-lab-ha || test -L /home/azureadmin/hybrid-infra-lab-ha; }" 2>/dev/null; then
+                READY_IPS+=("$candidate")
+              fi
+            done
+            if [ "${#READY_IPS[@]}" -eq "${#CM_IPS[@]}" ]; then break; fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
             if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-              echo "ERROR: Timed out waiting for Cloud-Init setup to complete on $TARGET_IP."
+              echo "ERROR: All online CM nodes did not become ready after $((MAX_RETRIES * 5)) seconds."
               exit 1
             fi
-            echo "Cloud-init or Git repo setup still in progress... Retrying in 5s ($RETRY_COUNT/$MAX_RETRIES)"
+            echo "Waiting for all online CM nodes to become ready... Retry $RETRY_COUNT/$MAX_RETRIES"
             sleep 5
           done
-          echo "CM Node Cloud-Init and Repository setup are 100% ready!"
+          READY_IPS_JSON=$(printf '%s\n' "${READY_IPS[@]}" | jq -R . | jq -s .)
+          echo "cm_ips=$READY_IPS_JSON" >> "$GITHUB_OUTPUT"
+          echo "cm_ip=${READY_IPS[0]}" >> "$GITHUB_OUTPUT"
+          echo "All online CM nodes are ready to stage the approved release."
 
-      - name: Trigger Remote Ansible Execution on CM Node
+      - name: Stage approved release on every CM
         run: |
-          TARGET_IP="${{ steps.resolve_node.outputs.cm_ip }}"
-          ssh -o StrictHostKeyChecking=accept-new azureadmin@$TARGET_IP "cd /home/azureadmin/hybrid-infra-lab-ha && git checkout ansible/inventory/generate_inventory.sh && git pull origin main && cd ansible && chmod +x run.sh inventory/generate_inventory.sh && ./run.sh"
+          mapfile -t CM_IPS < <(echo '${{ steps.cm-ready.outputs.cm_ips }}' | jq -r '.[]')
+          for CM_IP in "${CM_IPS[@]}"; do
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "azureadmin@$CM_IP" \
+              'install -d -o azureadmin -g azureadmin -m 0750 /home/azureadmin/phase8-inbox'
+            scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+              "$RUNNER_TEMP/phase8-release.tar.gz" \
+              "$RUNNER_TEMP/phase8-release.tar.gz.sha256" \
+              ansible/scripts/deploy-approved-release.sh \
+              "azureadmin@$CM_IP:/home/azureadmin/phase8-inbox/"
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "azureadmin@$CM_IP" \
+              "PHASE8_STAGE_ONLY=1 bash /home/azureadmin/phase8-inbox/deploy-approved-release.sh '$SOURCE_SHA' /home/azureadmin/phase8-inbox/phase8-release.tar.gz /home/azureadmin/phase8-inbox/phase8-release.tar.gz.sha256"
+          done
+
+      - name: Run staged canary rollout on selected CM
+        run: |
+          TARGET_IP="${{ steps.cm-ready.outputs.cm_ip }}"
+          ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "azureadmin@$TARGET_IP" \
+            "bash /home/azureadmin/phase8-inbox/deploy-approved-release.sh '$SOURCE_SHA' /home/azureadmin/phase8-inbox/phase8-release.tar.gz /home/azureadmin/phase8-inbox/phase8-release.tar.gz.sha256"
+
+      - name: Synchronize last-good pointer across CMs
+        run: |
+          mapfile -t CM_IPS < <(echo '${{ steps.cm-ready.outputs.cm_ips }}' | jq -r '.[]')
+          for CM_IP in "${CM_IPS[@]}"; do
+            ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "azureadmin@$CM_IP" \
+              "set -eu; RELEASE=/var/lib/phase8/releases/$SOURCE_SHA; test -f \"\$RELEASE/.approved-release\"; test \"\$(cat \"\$RELEASE/.approved-release\")\" = '$SOURCE_SHA'; ln -sfn \"\$RELEASE\" /var/lib/phase8/current.next; mv -Tf /var/lib/phase8/current.next /var/lib/phase8/current; ln -sfn \"\$RELEASE\" /var/lib/phase8/last-good; if [ -d /home/azureadmin/hybrid-infra-lab-ha ] && [ ! -L /home/azureadmin/hybrid-infra-lab-ha ]; then mv /home/azureadmin/hybrid-infra-lab-ha /var/lib/phase8/releases/legacy-checkout-\$(date -u +%Y%m%dT%H%M%SZ); fi; ln -sfn /var/lib/phase8/current /home/azureadmin/hybrid-infra-lab-ha"
+          done
 
       - name: Comment Ansible Deploy HA Success on PR
         if: success() && needs.notify-waiting.outputs.pr_number != '' && needs.notify-waiting.outputs.pr_number != 'null'

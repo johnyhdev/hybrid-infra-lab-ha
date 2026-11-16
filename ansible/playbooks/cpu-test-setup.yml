@@ -1,0 +1,7 @@
+---
+- name: Install but do not start the bounded CPU test service
+  hosts: workload
+  become: true
+
+  roles:
+    - cpu_test

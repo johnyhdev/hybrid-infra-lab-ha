@@ -1,0 +1,4 @@
+---
+# Run with --check --diff. Apply desired state through the normal protected deployment.
+- name: Import complete desired configuration for deterministic drift check
+  ansible.builtin.import_playbook: site.yml

@@ -76,3 +76,13 @@ output "workload_vm_ids" {
     name => vm.id
   }
 }
+
+output "loki_storage_account_name" {
+  description = "Private zone-redundant object storage account used by Loki and recovery state"
+  value       = azurerm_storage_account.loki.name
+}
+
+output "postgres_backup_identity_client_id" {
+  description = "User-assigned managed identity client ID restricted to the PostgreSQL backup container and cluster VMs"
+  value       = azurerm_user_assigned_identity.postgres_backup.client_id
+}

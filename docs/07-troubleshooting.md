@@ -10,7 +10,7 @@ Find the first failing step and diagnose one layer at a time. Never paste passwo
 - **Unexpected creates or “already exists”:** verify the fork uses new backend keys and the intended subscription. Stop; do not apply to see what happens. Do not import/migrate another repository's state without a reviewed plan.
 - **Identity apply authorization error:** identity apply needs permission to create the resource group/managed identity and `Microsoft.Authorization/roleAssignments/write` for `id-cm`'s Reader assignment. Check the actual role and scope; do not grant broad Owner as a shortcut.
 - **VM module cannot find resource group/identity:** apply identity first and make sure module names match.
-- **SKU/quota/zone/image error:** verify `Standard_D2ps_v6`, ARM64 support, zone 1, regional vCPU quota, and the Ubuntu image availability. Change VM map values and review a new plan.
+- **SKU/quota/zone/image error:** verify the selected ARM64 SKU, at least two supported zones, regional vCPU/disk quota, exact `UBUNTU_IMAGE_VERSION`, and subnet capacity. Change VM map values and review a new plan.
 
 ## GitHub OIDC and workflows
 
@@ -23,9 +23,9 @@ Find the first failing step and diagnose one layer at a time. Never paste passwo
 
 ## Tailscale
 
-- **CM does not appear in Machines:** inspect cloud-init and Tailscale service status, attached managed identity, `id-cm` principal ID subject, configured Azure audience, and `tag:cm` scope in the WIF credential.
+- **CM or workload does not appear in Machines:** inspect cloud-init and Tailscale service status, attached role-specific managed identity, matching principal-ID subject/audience, and expected `tag:cm` or `tag:workload` scope.
 - **CI cannot connect to the CM:** verify the two `tailscale-ci` OIDC secrets, `tag:ci` enrollment authorization, TCP 22 policy, the `azureadmin` Tailscale SSH rule, and the CM's online Tailscale IP. CI invokes the OpenSSH client over Tailscale; it does not load the VM administrator private key.
-- **CM is online but workloads are unreachable:** verify route `10.20.2.0/24` is advertised/approved, CIDRs do not overlap, NSG permits TCP 22 from `10.20.1.0/24`, and CM IP forwarding is enabled.
+- **Ansible cannot reach workloads or CM peers:** verify generated Tailscale inventory, online role tags, tailnet TCP/22 grants and SSH rules, UFW on `tailscale0`, and Tailscale WIF enrollment. No subnet route or direct VNet SSH is used.
 - **Policy GitOps fails:** verify `policy_file` scopes, `TAILSCALE_POLICY_*` variables, tailnet ID, and HUJSON syntax. Never put access tokens in policy or workflow files.
 
 ## Cloud-init and Ansible
@@ -50,29 +50,28 @@ Check the completion marker, clone, Ansible runtime, and inventory using these c
 
 ```bash
 test -f /var/log/cloud-init-done.tag && echo "cloud-init marker: present" || echo "cloud-init marker: missing"
-test -d /home/azureadmin/hybrid-infra-lab && echo "repository clone: present" || echo "repository clone: missing"
+test -d /home/azureadmin/hybrid-infra-lab-ha && echo "repository clone: present" || echo "repository clone: missing"
 /opt/ansible-venv/bin/ansible --version
 az login --identity
-cd /home/azureadmin/hybrid-infra-lab/ansible
+cd /home/azureadmin/hybrid-infra-lab-ha/ansible
 ./inventory/generate_inventory.sh
-ansible-inventory -i inventory/generated/azure.yml --graph
+ansible-inventory -i inventory/generated/tailscale.yml --graph
 ```
 
 The inventory graph should show the control and workload groups. The CM currently clones the public repository over HTTPS without repository authentication. A private fork requires a deliberate authentication design; do not embed a PAT in cloud-init. The generated inventory file is ignored by Git and contains private network addresses; do not attach it to public issues.
 
 For Ansible failures:
 
-1. Verify CM routing and workload SSH TCP 22 access from `10.20.1.0/24`.
-2. From `/home/azureadmin/hybrid-infra-lab/ansible`, run `./inventory/generate_inventory.sh` and `ansible-inventory -i inventory/generated/azure.yml --graph`; confirm the workload VM appears under the `workload` group.
-3. Verify the Terraform-generated internal SSH key exists on the CM and the matching public key was added to workloads.
-4. Inspect the failing task and host reachability; use the ping check in `ansible/run.sh`.
-5. Inspect the affected service with `systemctl` and `journalctl`, fix the role/source, and rerun.
+1. Verify the CM and workload hosts are online on the tailnet and policy permits the required role-to-role SSH.
+2. From `/home/azureadmin/hybrid-infra-lab-ha/ansible`, regenerate inventory and inspect `inventory/generated/tailscale.yml`; confirm all expected groups and Tailscale DNS/IPs appear.
+3. Use `ansible all -i inventory/generated/tailscale.yml -m ping -o` to test Tailscale SSH reachability without a private key.
+4. Inspect the affected service with `systemctl` and `journalctl`, fix the role/source, and redeploy through the protected exact-SHA workflow.
 
 Do not add a Public IP to debug. This repository does not configure or verify an Azure Serial Console recovery path. If Tailscale access is unavailable, stop and use an independently verified recovery procedure for your Azure environment; do not assume one is configured by this lab. Fix Terraform/cloud-init/Ansible and redeploy through reviewed workflows.
 
 ## Application checks
 
-- Nginx listens on port 80 and proxies to the sample app at `127.0.0.1:8080`; port 5000 in old notes is obsolete.
-- Node Exporter uses port 9100; no Prometheus server is included.
-- PostgreSQL is installed but is not configured or used by the sample application.
-- The application is private-only. Failure to access it from outside the tailnet/private network is expected.
+- Cloudflare Tunnel targets each workload's local Nginx proxy on port 8081; Nginx serves TLS backend traffic on 8443 and the sample app listens on loopback 8082.
+- Node Exporter uses private-IP TLS on port 9100; Prometheus, Alertmanager, Grafana, Loki and Alloy are provisioned by Phase 8 roles when external pins are configured.
+- PostgreSQL remains a single workload instance with TLS; it is not clustered and is not used by the sample app.
+- The origin and monitoring services are private-only. Direct-origin/public-IP access is not expected.

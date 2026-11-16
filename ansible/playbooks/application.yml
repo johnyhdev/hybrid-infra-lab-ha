@@ -1,12 +1,9 @@
 ---
+- name: Prepare workload nodes
+  import_playbook: workload-prepare.yml
 
-- name: Configure workload application stack
-  hosts: workload
-  become: true
+- name: Configure PostgreSQL HA
+  import_playbook: postgresql-ha.yml
 
-  roles:
-    - linux_baseline
-    - postgresql
-    - sample_app
-    - nginx
-    - node_exporter
+- name: Deploy workload application services
+  import_playbook: application-services.yml

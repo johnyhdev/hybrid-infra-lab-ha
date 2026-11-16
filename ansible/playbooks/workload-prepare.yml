@@ -1,0 +1,13 @@
+---
+- name: Prepare workload nodes before database bootstrap
+  hosts: workload
+  become: true
+  serial: "{{ workload_rollout_batch | default('25%') }}"
+  any_errors_fatal: true
+
+  roles:
+    - linux_baseline
+    - data_disk
+    - tailscale_tls
+    - loki_proxy
+    - log_collector

@@ -6,7 +6,7 @@ Start here and follow documents 01–08 in order. The current repository impleme
 
 Prepare:
 
-- An active Azure subscription with billing, permissions, and VM quota for Central India, zone 1, and the default Ubuntu ARM64 size.
+- An active Azure subscription with billing, permissions, and quota for at least two supported availability zones, two CM VMs, two workload VMs, private endpoints, and the selected ARM64 VM sizes.
 - A GitHub account/repository with Actions enabled and permission to configure Environments, secrets, variables, and branch protections.
 - An administrator account in a Tailscale tailnet that supports OIDC/workload identity federation, Tailscale SSH, and policy GitOps.
 
@@ -42,14 +42,14 @@ az account show --output table
 
 ## Check region, SKU, quota, and networks
 
-The default VM maps define one control-manager and one workload VM, both `Standard_D2ps_v6`, zone `1`, using Ubuntu 24.04 ARM64. Verify SKU/zone support and vCPU quota for your subscription; availability and pricing can change.
+The Phase 8 VM maps default to two control managers and two workloads, using `Standard_D2ps_v6` in zones 1 and 2, Ubuntu 24.04 ARM64. Set an exact region-available image version through `UBUNTU_IMAGE_VERSION`. Verify SKU/zone support, subnet capacity and vCPU quota; availability and pricing can change. One-node maps require explicit `ha_mode=false` and are non-HA.
 
 ```powershell
 az vm list-skus --location centralindia --size Standard_D2ps_v6 --all --output table
 az vm list-usage --location centralindia --output table
 ```
 
-If needed, update `control_vms` and `workload_vms` in `terraform/02-vmresource/variables.tf` and ensure the selected SKU supports the configured ARM64 image. Default networking is VNet `10.20.0.0/16`, automation subnet `10.20.1.0/24`, and workload subnet `10.20.2.0/24`. Avoid overlap; if changed, update Terraform and Tailscale route/policy values together.
+If needed, update `control_vms` and `workload_vms` in `terraform/02-vmresource/variables.tf` and ensure the selected SKU supports the pinned ARM64 image. Default networking is VNet `10.20.0.0/16`, control subnet `10.20.1.0/24`, and workload subnet `10.20.2.0/23`. Avoid overlap; if changed, update Terraform and Tailscale role policy together. The CM no longer advertises a workload-subnet route; each VM is individually enrolled.
 
 ## Fork, clone, and customize
 
@@ -60,7 +60,7 @@ If needed, update `control_vms` and `workload_vms` in `terraform/02-vmresource/v
    - `terraform/01-identity/backend.tf` and `terraform/02-vmresource/backend.tf`: state resource group, globally unique storage account, container, and distinct state keys.
    - `terraform/01-identity/variables.tf`: lab resource-group name, managed-identity name, and location.
    - `terraform/02-vmresource/variables.tf` and `network.tf`: resource names, VM maps, and CIDRs as needed.
-   - `bootstrap/cm-cloud-init.yaml`: change the hard-coded HTTPS clone URL to your fork. Private repositories require a deliberate authentication method; never embed a PAT/token in cloud-init.
+   - `bootstrap/cm-cloud-init-ha.yaml`: change the hard-coded HTTPS clone URL to your fork. Private repositories require a deliberate authentication method; never embed a PAT/token in cloud-init.
    - `ansible/inventory/generate_inventory.sh`: match the Terraform resource-group name.
    - `tailscale/policy.hujson`: keep route CIDRs synchronized with Terraform.
 
@@ -75,7 +75,7 @@ ssh-keygen -t rsa -b 4096 -f "$env:USERPROFILE\.ssh\hybrid-infra-lab"
 Get-Content "$env:USERPROFILE\.ssh\hybrid-infra-lab.pub"
 ```
 
-Supply **only the public key** (the `.pub` file contents) to GitHub as `SSH_PUBLIC_KEY`; never commit the private key or place it in Terraform files. Keep the private key protected on an administrator workstation. The repository provisions the public key for Azure VM authentication, but the lab's normal CM access uses Tailscale SSH identity/policy and does not use that private key. No alternate private-key or Azure Serial Console recovery path is configured and verified here; do not assume the private key alone provides emergency access. For local Terraform runs, provide the public key through `TF_VAR_ssh_public_key` or an ignored local `terraform.tfvars` file; verify it is not staged before committing.
+Supply **only the public key** (the `.pub` file contents) to GitHub as `SSH_PUBLIC_KEY`; Azure Linux VM creation requires this initial account key while password authentication stays disabled. Never commit the private key. Keep it protected on an administrator workstation for Azure recovery procedures. Normal operator and Ansible access use Tailscale SSH; no private key is deployed from CM to workloads and CI has no SSH private-key secret. For local Terraform runs, provide the public key through `TF_VAR_ssh_public_key` or an ignored local `terraform.tfvars` file; verify it is not staged before committing.
 
 ### Copy the public key into the GitHub value and local Terraform input
 
@@ -111,13 +111,18 @@ The identity root does not consume this variable; it is needed by `terraform/02-
 Set-Location ..\02-vmresource
 $env:TF_VAR_tailscale_cm_client_id = "<TAILSCALE_CM_CLIENT_ID_FROM_DOCUMENT_04>"
 $env:TF_VAR_tailscale_cm_audience = "<TAILSCALE_CM_AUDIENCE_FROM_DOCUMENT_04>"
+$env:TF_VAR_tailscale_workload_client_id = "<TAILSCALE_WORKLOAD_CLIENT_ID_FROM_DOCUMENT_04>"
+$env:TF_VAR_tailscale_workload_audience = "<TAILSCALE_WORKLOAD_AUDIENCE_FROM_DOCUMENT_04>"
+$env:TF_VAR_ubuntu_image_version = "<EXACT_UBUNTU_2404_ARM64_IMAGE_VERSION>"
+$env:TF_VAR_tailscale_package_version = "<EXACT_TAILSCALE_X_Y_Z_VERSION>"
+$env:TF_VAR_azure_cli_version = "<EXACT_AZURE_CLI_APT_VERSION>"
 terraform init
 terraform fmt -check
 terraform validate
 terraform plan
 ```
 
-Replace the two placeholders with the non-secret Client ID and Audience for the **Azure control-manager** Tailscale credential. These variables are required by `terraform/02-vmresource`; do not use the GitHub CI or policy-GitOps values.
+Replace the placeholders with the non-secret Client IDs and Audiences for the **Azure control-manager** and **workload** Tailscale credentials, exact Ubuntu ARM64, Tailscale, and Azure CLI package versions, plus Key Vault and Loki storage names through corresponding `TF_VAR_*` values. These inputs are required by `terraform/02-vmresource`; do not use the GitHub CI or policy-GitOps WIF values.
 
 Local Terraform authentication with the repository's OIDC backend settings must be validated for your chosen local identity before running these commands; `az login` alone may not provide the GitHub OIDC token expected by CI. If local `terraform init` fails authentication, stop and use the documented GitHub workflow rather than adding a client secret or storage key to backend configuration.
 
@@ -127,6 +132,11 @@ Local Terraform authentication with the repository's OIDC backend settings must 
 Remove-Item Env:TF_VAR_ssh_public_key -ErrorAction SilentlyContinue
 Remove-Item Env:TF_VAR_tailscale_cm_client_id -ErrorAction SilentlyContinue
 Remove-Item Env:TF_VAR_tailscale_cm_audience -ErrorAction SilentlyContinue
+Remove-Item Env:TF_VAR_tailscale_workload_client_id -ErrorAction SilentlyContinue
+Remove-Item Env:TF_VAR_tailscale_workload_audience -ErrorAction SilentlyContinue
+Remove-Item Env:TF_VAR_ubuntu_image_version -ErrorAction SilentlyContinue
+Remove-Item Env:TF_VAR_tailscale_package_version -ErrorAction SilentlyContinue
+Remove-Item Env:TF_VAR_azure_cli_version -ErrorAction SilentlyContinue
 Test-Path Env:TF_VAR_ssh_public_key
 ```
 

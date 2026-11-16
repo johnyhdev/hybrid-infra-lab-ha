@@ -1,0 +1,198 @@
+{% raw %}
+groups:
+  - name: infrastructure-availability
+    interval: 15s
+    rules:
+{% endraw %}
+{% for host in groups['control'] + groups['workload'] %}
+      - alert: AlloyAgentMissing
+        expr: absent_over_time(up{job="alloy_system",instance="{{ host }}"}[2m])
+        labels:
+          severity: critical
+          instance: "{{ host }}"
+        annotations:
+          summary: "Alloy metrics missing for {{ host }}"
+          description: "No Alloy system scrape samples have reached the control plane for two minutes."
+{% endfor %}
+{% raw %}
+
+      - alert: CloudflaredUnavailable
+        expr: phase8_cloudflared_expected{job="alloy_system"} == 1 and phase8_cloudflared_active{job="alloy_system"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cloudflare Tunnel connector unavailable on {{ $labels.instance }}"
+          description: "The approved ingress connector is stopped or its local proxy-to-app readiness check failed repeatedly."
+
+      - alert: AnsibleReleaseDeploymentFailed
+        expr: phase8_ansible_release_deploy_failed{job="alloy_system"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Approved Ansible release {{ $labels.release_sha }} failed on the CM controller"
+          description: "The rollout stopped or rollback failed; inspect the Ansible deployment log and release state."
+
+      - alert: AnsibleReleaseRollbackFailed
+        expr: phase8_ansible_release_rollback_failed{job="alloy_system"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Automatic Ansible rollback failed on the CM controller"
+          description: "Manual recovery is required; inspect /var/log/ansible/site.log and the CM release directories."
+
+  - name: workload-capacity
+    interval: 15s
+    rules:
+      - alert: WorkloadCPUHigh
+        expr: 100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job="alloy_system",mode="idle"}[5m]))) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU high on {{ $labels.instance }}"
+          description: "CPU has stayed above 85%; current value {{ $value | printf \"%.1f\" }}%."
+
+      - alert: WorkloadMemoryLow
+        expr: 100 * node_memory_MemAvailable_bytes{job="alloy_system"} / node_memory_MemTotal_bytes{job="alloy_system"} < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Available memory low on {{ $labels.instance }}"
+          description: "Available memory has stayed below 10%."
+
+      - alert: WorkloadFilesystemAlmostFull
+        expr: 100 * (1 - node_filesystem_avail_bytes{job="alloy_system",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="alloy_system",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) >= 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} nearly full on {{ $labels.instance }}"
+
+      - alert: WorkloadFilesystemReadOnly
+        expr: node_filesystem_readonly{job="alloy_system",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is read-only on {{ $labels.instance }}"
+
+      - alert: NginxUnavailable
+        expr: phase8_nginx_proxy_active{job="alloy_system"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nginx proxy or local web service unavailable on {{ $labels.instance }}"
+
+      - alert: NginxHTTPProbeFailure
+        expr: phase8_http_probe_status{job="alloy_system"} != 200
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTPS application health check failed for {{ $labels.backend }}"
+
+      - alert: NginxHTTPHighLatency
+        expr: phase8_http_probe_duration_seconds{job="alloy_system"} > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTPS application health check latency is high for {{ $labels.backend }}"
+
+      - alert: WorkloadNetworkErrors
+        expr: sum by(instance) (rate(node_network_receive_errs_total{job="alloy_system",device!~"lo"}[5m]) + rate(node_network_transmit_errs_total{job="alloy_system",device!~"lo"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Network errors detected on {{ $labels.instance }}"
+
+      - alert: WorkloadBackendUnhealthy
+        expr: phase8_backend_healthy{job="alloy_system"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend {{ $labels.backend }} is unhealthy from {{ $labels.instance }}"
+
+      - alert: WorkloadBackendPoolUnavailable
+        expr: phase8_workload_pool_ready{job="alloy_system"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No healthy workload backend is reachable from {{ $labels.instance }}"
+          description: "Ingress connectors will be withdrawn until a backend responds to the readiness probe."
+
+      - alert: PostgreSQLUnavailable
+        expr: phase8_postgresql_ready{job="alloy_system"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL readiness check failed on {{ $labels.instance }}"
+
+      - alert: PostgreSQLPrimaryCountInvalid
+        expr: (count(phase8_postgresql_primary{job="alloy_system"} == 1) or vector(0)) != 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL HA does not have exactly one writable primary"
+          description: "Expected one Patroni primary across the database cluster; verify quorum/fencing immediately."
+
+      - alert: PostgreSQLReplicaCountLow
+        expr: (count(phase8_postgresql_replica{job="alloy_system"} == 1) or vector(0)) < 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL HA has fewer than two healthy replicas"
+
+      - alert: PostgreSQLEtcdQuorumLost
+        expr: (count(phase8_etcd_endpoint_healthy{job="alloy_system"} == 1) or vector(0)) < 2
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL etcd quorum is unavailable"
+
+      - alert: PostgreSQLWALArchiveFailing
+        expr: increase(phase8_postgresql_wal_archive_failed_total{job="alloy_system"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL WAL archiving to Blob is failing on {{ $labels.instance }}"
+
+      - alert: PostgreSQLWALArchiveLagHigh
+        expr: phase8_postgresql_wal_archive_lag_seconds{job="alloy_system"} > {% endraw %}{{ postgresql_rpo_pitr_target_seconds | int }}{% raw %}
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL WAL archive lag exceeds the configured RPO target on {{ $labels.instance }}"
+
+      - alert: PostgreSQLBaseBackupStale
+        expr: phase8_postgresql_backup_last_success_timestamp_seconds{job="alloy_system"} == 0 or time() - phase8_postgresql_backup_last_success_timestamp_seconds{job="alloy_system"} > 36 * 3600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL base backup is missing or older than 36 hours"
+          description: "Check the shared postgres-backups container and run a restore drill."
+
+      - alert: WorkloadCPUTestCritical
+        expr: phase8_cpu_test_active{job="alloy_system"} == 1 and 100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{job="alloy_system",mode="idle"}[2m]))) > 20
+        for: 1m
+        labels:
+          severity: critical
+          component: phase8-cpu-test
+        annotations:
+          summary: "Bounded CPU test exceeded the critical threshold on {{ $labels.instance }}"
+{% endraw %}

@@ -1,0 +1,7 @@
+{
+  "key_vault_uri": {{ cloudflare_key_vault_uri | to_json }},
+  "secret_name": {{ cloudflare_api_token_secret_name | to_json }},
+  "account_id": {{ cloudflare_account_id | to_json }},
+  "managed_identity_client_id": {{ workload_managed_identity_client_id | to_json }},
+  "tunnel_id": {{ cloudflare_pool_matches[0].tunnel_id | to_json }}
+}

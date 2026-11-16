@@ -4,3 +4,6 @@
 
 - name: Import application deployment playbook
   ansible.builtin.import_playbook: application.yml
+
+- name: Import monitoring deployment playbook
+  ansible.builtin.import_playbook: monitoring.yml
