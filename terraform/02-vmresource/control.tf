@@ -98,8 +98,8 @@ resource "azurerm_linux_virtual_machine" "cm" {
   }
 }
 
+# checkov:skip=BC_AZURE_251: "Managed disk network access policy and encryption managed by lab baseline"
 resource "azurerm_managed_disk" "cm_data" {
-  # checkov:skip=BC_AZURE_251: "Managed disk network access policy and encryption managed by lab baseline"
   for_each = {
     for name, vm in var.control_vms : name => vm
     if vm.data_disk_size_gb > 0

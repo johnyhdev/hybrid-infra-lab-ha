@@ -35,10 +35,9 @@ data "azurerm_key_vault_key" "loki_encryption_key" {
   key_vault_id = data.azurerm_key_vault.workload_secrets.id
 }
 
+# checkov:skip=CKV_AZURE_206: "ZRS replication is sufficient for lab telemetry storage"
+# checkov:skip=CKV2_AZURE_21: "Blob logging managed at storage account diagnostic setting level"
 resource "azurerm_storage_account" "loki" {
-  # checkov:skip=CKV_AZURE_206: "ZRS replication is sufficient for lab telemetry storage"
-  # checkov:skip=CKV2_AZURE_21: "Blob logging managed at storage account diagnostic setting level"
-
   name                            = var.loki_storage_account_name
   resource_group_name             = data.azurerm_resource_group.main.name
   location                        = data.azurerm_resource_group.main.location
