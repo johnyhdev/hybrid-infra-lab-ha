@@ -58,10 +58,14 @@ jobs:
           directory: ansible
           framework: ansible
           config_file: .checkov.yaml
+          output_format: sarif
+          output_file_path: checkov-results.sarif # Đổi tên file output của Checkov
           quiet: true
           soft_fail: false
 
       - name: Scan for committed secrets
         uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --redact -v --exit-code=2 --report-format=sarif --report-path=gitleaks-results.sarif --log-level=debug # Đổi tên file output của Gitleaks
         env:
           GITHUB_TOKEN: ${{ github.token }}
