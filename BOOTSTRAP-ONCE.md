@@ -14,38 +14,171 @@ Perform the following interactively on the trusted host as the authorized admini
 
 ```bash
 # Run in a new interactive Bash session on the trusted VNet-connected host.
-set -euo pipefail
-umask 077
-workdir=$(mktemp -d /dev/shm/phase8-bootstrap.XXXXXXXX)
-trap 'rm -rf -- "$workdir"' EXIT
-export AZURE_CONFIG_DIR="$workdir/azure"
-mkdir -m 700 "$AZURE_CONFIG_DIR"
-az login --use-device-code --output none
+ssh azureadmin@vm-workload-01
 
-vault_name="kvhybridinfra26111010"  # Set your vault name, not a secret.
+#  Run Tmux to keep session alive
+sudo apt-get update && sudo apt-get install -y tmux
+tmux
+
+# Back to session
+tmux attach
+
+# Tạo thư mục cấu hình Azure riêng biệt cho phiên làm việc
+export AZURE_CONFIG_DIR="/dev/shm/azure-config"
+mkdir -m 700 "$AZURE_CONFIG_DIR"
+
+# Thực hiện đăng nhập bằng device code
+az login --use-device-code
+
+# Thực hiện cấp quyền cho tài khoản thao tác trên azure vault lần đầu tiên
+# ==========================================
+# CẤU HÌNH BIẾN ĐẦU VÀO (Điền thông tin của bạn vào đây)
+# ==========================================
+email_azure_admin="an.huynh@netop.uk"
+azure_subscription="8523e1c3-049c-4821-b08d-ba4c677080ac"
+resource_group="rg-hybrid-infra-lab-ha"
+vault_name="kvhybridinfra26111010"
+
+# ==========================================
+# THỰC THI GÁN QUYỀN (Scope ở cấp Resource Group)
+# ==========================================
+echo "Đang cấu hình gán quyền Key Vault Secrets Officer..."
+
+az role assignment create \
+  --role "Key Vault Secrets Officer" \
+  --assignee "$email_azure_admin" \
+  --scope "/subscriptions/$azure_subscription/resourceGroups/$resource_group/providers/Microsoft.KeyVault/vaults/$vault_name"
+
+echo "-> Hoàn tất! Hãy đợi khoảng 1-2 phút để Azure đồng bộ quyền trước khi chạy lại script set secret."
+
+# Chạy vòng lặp nhập 5 Secret
+
 for name in \
   postgresql-superuser-password \
   postgresql-replication-password \
   postgresql-app-password \
   postgresql-backup-password \
   postgresql-patroni-api-password; do
+  
+  echo "----------------------------------------"
   read -r -s -p "Value for $name (at least 24 characters): " value
   printf '\n'
+  
   if (( ${#value} < 24 )); then
     unset value
-    echo "Value is too short; aborting." >&2
+    echo "ERROR: Value is too short (< 24 chars); aborting." >&2
     exit 1
   fi
-  printf '%s' "$value" > "$workdir/value"
+  
+  # Ghi tạm vào file bảo mật trong /dev/shm (RAM-disk)
+  echo -n "$value" > /dev/shm/vault_secret_val
   unset value
-  az keyvault secret set --vault-name "$vault_name" --name "$name" \
-    --file "$workdir/value" --encoding utf-8 --only-show-errors --output none
-  rm -f -- "$workdir/value"
+  
+  az keyvault secret set \
+    --vault-name "$vault_name" \
+    --name "$name" \
+    --file "/dev/shm/vault_secret_val" \
+    --encoding utf-8 \
+    --only-show-errors \
+    --output none
+    
+  rm -f /dev/shm/vault_secret_val
+  echo "-> Successfully enrolled: $name"
 done
-printf 'PostgreSQL secrets enrolled.\n'
+
+printf '\nPostgreSQL secrets enrolled successfully!\n'
+
+# Kiểm tra sự tồn tại 5 secrets lại bằng lệnh:
+az keyvault secret list --vault-name "kvhybridinfra26111010" --output table
+
+
 ```
 
 This creates a **new version** if a name already exists; run it only for first enrollment, not as a deployment step or a credential-rotation procedure. If interrupted, some names may already exist; do not blindly rerun it against a live cluster. Updating vault values alone does not rotate PostgreSQL credentials: active Patroni configuration changes are intentionally refused until a coordinated, tested rotation is performed. Values must be at least 24 characters and must not contain newlines. Keep copies according to your credential-recovery policy; do not send them to an assistant.
+
+## Set Cloudflare API token secrets
+
+```bash
+vault_name="kvhybridinfra26111010"
+cf_secret_name="cloudflare-api-token"
+
+echo "----------------------------------------"
+echo "Kiểm tra trạng thái secret '$cf_secret_name' trong Key Vault '$vault_name'..."
+
+# Kiểm tra xem secret đã tồn tại trên Key Vault hay chưa
+if az keyvault secret show --vault-name "$vault_name" --name "$cf_secret_name" --output none 2>/dev/null; then
+  echo "⚠️ CẢNH BÁO: Secret '$cf_secret_name' đã tồn tại trên Key Vault."
+  read -r -p "Bạn có muốn ghi đè (update) giá trị mới không? (y/N): " confirm
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "-> Đã hủy thao tác. Giữ nguyên secret cũ hiện tại."
+    exit 0
+  fi
+fi
+
+# Nhập token mới
+echo "----------------------------------------"
+read -r -s -p "Paste Cloudflare API Token vào đây: " cf_token_value
+printf '\n'
+
+# Kiểm tra độ dài cơ bản
+if (( ${#cf_token_value} < 30 )); then
+  unset cf_token_value
+  echo "ERROR: Cloudflare API Token quá ngắn hoặc không hợp lệ; aborting." >&2
+  exit 1
+fi
+
+# Ghi tạm vào RAM-disk (/dev/shm) an toàn
+echo -n "$cf_token_value" > /dev/shm/vault_secret_val
+unset cf_token_value
+
+# Đẩy lên Azure Key Vault
+az keyvault secret set \
+  --vault-name "$vault_name" \
+  --name "$cf_secret_name" \
+  --file "/dev/shm/vault_secret_val" \
+  --encoding utf-8 \
+  --only-show-errors \
+  --output none
+
+# Dọn dẹp RAM-disk
+rm -f /dev/shm/vault_secret_val
+echo "-> Successfully enrolled/updated: $cf_secret_name"
+
+# Kiểm tra lại tổng quan danh sách secrets
+echo "----------------------------------------"
+echo "Danh sách các secrets hiện có trong Key Vault:"
+az keyvault secret list --vault-name "$vault_name" --output table
+
+# Xem value đã nhập cho secret:
+az keyvault secret show \
+  --vault-name "kvhybridinfra26111010" \
+  --name "postgresql-superuser-password" \
+  --query "value" \
+  --output tsv
+```
+
+## Thu hồi quyền thao tác trên Azure Key vault
+Thực hiện sau khi đã thao tác xong với Azure Keyvault
+
+```bash
+az role assignment delete \
+  --role "Key Vault Secrets Officer" \
+  --assignee "$email_azure_admin" \
+  --scope "/subscriptions/$azure_subscription/resourceGroups/$resource_group/providers/Microsoft.KeyVault/vaults/$vault_name"
+
+#Kiểm tra nhanh quyền đã bị thu hồi chưa nếu không chờ được 2 - 5 phút
+# Đăng xuất khỏi phiên hiện tại
+az logout
+
+# Tạo lại thư mục tạm và đăng nhập lại để lấy token mới nhất
+export AZURE_CONFIG_DIR="/dev/shm/azure-config"
+az login --use-device-code
+
+# Xóa thư mục cấu hình tạm:
+rm -rf /dev/shm/azure-config
+
+# Done
+```
 
 ## Key Vault call frequency and costs
 

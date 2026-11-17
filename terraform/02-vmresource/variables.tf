@@ -37,7 +37,7 @@ variable "admin_username" {
 variable "ubuntu_image_version" {
   description = "Exact Ubuntu 24.04 ARM64 marketplace image version available in the selected region"
   type        = string
-  default     = "24.04.202509120" # Example: "24.04.202509120"
+  default     = "latest" # Example: "24.04.202509120"
 
   validation {
     condition     = can(regex("^24[.]04[.][0-9]+$", var.ubuntu_image_version))
