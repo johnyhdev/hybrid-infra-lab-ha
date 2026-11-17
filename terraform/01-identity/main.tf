@@ -52,7 +52,7 @@ data "azurerm_client_config" "current" {}
 
 
 resource "azurerm_key_vault" "workload_secrets" {
-  # checkov:skip=CKV2_AZURE_32: Private Endpoint for Key Vault is configured in 02-vmresource (network.tf)
+  # checkov:skip=CKV2_AZURE_32: The private endpoint is managed by the VM-resource root.
 
   name                          = var.key_vault_name
   location                      = azurerm_resource_group.main.location

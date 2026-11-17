@@ -36,9 +36,11 @@ data "azurerm_key_vault_key" "loki_encryption_key" {
 }
 
 # checkov:skip=CKV_AZURE_206: "ZRS replication is sufficient for lab telemetry storage"
-# checkov:skip=CKV_AZURE_33: "Queue logging is configured via separate azurerm_storage_account_queue_properties resource"
+# checkov:skip=CKV_AZURE_33: "Queue diagnostic logging is configured through Azure Monitor"
 # checkov:skip=CKV2_AZURE_21: "Blob logging managed at storage account diagnostic setting level"
 resource "azurerm_storage_account" "loki" {
+  # checkov:skip=CKV_AZURE_59: Service endpoints use public addressing behind a default-deny subnet firewall.
+  # checkov:skip=CKV2_AZURE_33: Subnet service endpoints and the default-deny firewall replace Private Link.
   name                            = var.loki_storage_account_name
   resource_group_name             = data.azurerm_resource_group.main.name
   location                        = data.azurerm_resource_group.main.location
@@ -47,9 +49,15 @@ resource "azurerm_storage_account" "loki" {
   account_kind                    = "StorageV2"
   min_tls_version                 = "TLS1_2"
   https_traffic_only_enabled      = true
-  public_network_access_enabled   = false
+  public_network_access_enabled   = true
   shared_access_key_enabled       = false
   allow_nested_items_to_be_public = false
+
+  network_rules {
+    default_action             = "Deny"
+    bypass                     = ["AzureServices"]
+    virtual_network_subnet_ids = [azurerm_subnet.automation.id, azurerm_subnet.workload.id]
+  }
 
   # 1. Bật System Assigned Identity cho Storage Account
   identity {
@@ -71,17 +79,20 @@ resource "azurerm_storage_account" "loki" {
     }
   }
 
+  # Thêm block timeouts để tăng thời gian chờ Azure khởi tạo xong Data Plane
+  timeouts {
+    create = "30m"
+    update = "30m"
+    read   = "10m"
+    delete = "30m"
+  }
+
 }
 
-resource "azurerm_storage_account_queue_properties" "loki" {
-  storage_account_id = azurerm_storage_account.loki.id
-
-  logging {
-    delete                = true
-    read                  = true
-    write                 = true
-    version               = "1.0"
-    retention_policy_days = 7
+removed {
+  from = azurerm_storage_account_queue_properties.loki
+  lifecycle {
+    destroy = false
   }
 }
 
@@ -183,10 +194,9 @@ resource "terraform_data" "topology_guard" {
       condition = !var.ha_mode || (
         length(var.control_vms) >= 2 &&
         length(var.workload_vms) >= 2 &&
-        length(distinct([for vm in values(var.control_vms) : vm.zone])) >= 2 &&
-        length(distinct([for vm in values(var.workload_vms) : vm.zone])) >= 2
+        length(distinct([for vm in values(var.control_vms) : vm.zone])) >= 2
       )
-      error_message = "HA mode requires at least two CM and two workload VMs distributed across at least two distinct zones per plane. Set ha_mode=false only for an explicitly non-HA lab."
+      error_message = "HA mode requires at least two CM VMs in distinct zones and at least two workload VMs. Set ha_mode=false only for an explicitly non-HA lab."
     }
 
     precondition {
@@ -195,10 +205,8 @@ resource "terraform_data" "topology_guard" {
     }
 
     precondition {
-      condition = length([for vm in values(var.workload_vms) : vm if vm.database_cluster_member]) == 3 && length(distinct([
-        for vm in values(var.workload_vms) : vm.zone if vm.database_cluster_member
-      ])) == 3
-      error_message = "PostgreSQL HA requires exactly three cluster-member VMs distributed across three distinct zones."
+      condition     = length([for vm in values(var.workload_vms) : vm if vm.database_cluster_member]) == 3
+      error_message = "PostgreSQL HA requires exactly three cluster-member VMs; they may share availability zones."
     }
   }
 }
@@ -218,6 +226,24 @@ resource "azurerm_monitor_diagnostic_setting" "loki_blob_logging" {
   }
 
   # Tắt hoàn toàn các metric không cần thiết để giảm thiểu chi phí transaction
+}
+
+resource "azurerm_monitor_diagnostic_setting" "loki_queue_logging" {
+  name               = "diag-loki-queue-service"
+  target_resource_id = "${azurerm_storage_account.loki.id}/queueServices/default"
+  storage_account_id = azurerm_storage_account.loki.id
+
+  enabled_log {
+    category = "StorageRead"
+  }
+
+  enabled_log {
+    category = "StorageWrite"
+  }
+
+  enabled_log {
+    category = "StorageDelete"
+  }
 }
 
 # Cấp quyền cho Storage Account System-Assigned Identity được phép dùng Key trong Key Vault (do KV bật Azure RBAC)

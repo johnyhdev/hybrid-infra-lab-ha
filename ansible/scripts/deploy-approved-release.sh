@@ -112,7 +112,8 @@ fi
 ansible_dir="$release_dir/ansible"
 inventory="$ansible_dir/$INVENTORY_NAME"
 log "generating live Tailscale/Azure inventory"
-"$ansible_dir/inventory/generate_inventory.sh" "$inventory"
+source "$ansible_dir/inventory/retry_inventory.sh"
+generate_inventory_with_retry "$ansible_dir/inventory/generate_inventory.sh" "$inventory"
 
 mapfile -t workload_hosts < <(
   /opt/ansible-venv/bin/ansible-inventory -i "$inventory" --list | /usr/bin/python3 -c '

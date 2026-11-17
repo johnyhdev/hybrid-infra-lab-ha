@@ -23,7 +23,7 @@
       - cloudflare_pool_matches[0].tunnel_id is match('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
       - cloudflare_pool_matches[0].max_replicas | int <= 25
       - groups['cloudflare_ingress'] | length <= cloudflare_pool_matches[0].max_replicas | int
-      - cloudflare_key_vault_uri is match('^https://[A-Za-z0-9-]+[.]vault[.]azure[.]net$')
+      - cloudflare_key_vault_uri is match('^https://[A-Za-z0-9-]+[.]vault[.]azure[.]net/?$')
       - cloudflare_account_id is match('^[0-9a-fA-F]{32}$')
       - "'REPLACE_' not in cloudflare_api_token_secret_name"
       - "'REPLACE_' not in workload_managed_identity_client_id"

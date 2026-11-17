@@ -20,6 +20,8 @@ resource "azurerm_subnet" "automation" {
   address_prefixes = [
     var.control_plane_subnet_cidr
   ]
+
+  service_endpoints = ["Microsoft.Storage"]
 }
 
 resource "azurerm_subnet" "workload" {
@@ -30,6 +32,8 @@ resource "azurerm_subnet" "workload" {
   address_prefixes = [
     var.workload_plane_subnet_cidr
   ]
+
+  service_endpoints = ["Microsoft.Storage"]
 }
 
 resource "azurerm_private_dns_zone" "key_vault" {
@@ -43,38 +47,6 @@ resource "azurerm_private_dns_zone_virtual_network_link" "key_vault" {
   private_dns_zone_name = azurerm_private_dns_zone.key_vault.name
   virtual_network_id    = azurerm_virtual_network.main.id
   registration_enabled  = false
-}
-
-resource "azurerm_private_dns_zone" "storage_blob" {
-  name                = "privatelink.blob.core.windows.net"
-  resource_group_name = data.azurerm_resource_group.main.name
-}
-
-resource "azurerm_private_dns_zone_virtual_network_link" "storage_blob" {
-  name                  = "link-${var.vnet_name}-blob"
-  resource_group_name   = data.azurerm_resource_group.main.name
-  private_dns_zone_name = azurerm_private_dns_zone.storage_blob.name
-  virtual_network_id    = azurerm_virtual_network.main.id
-  registration_enabled  = false
-}
-
-resource "azurerm_private_endpoint" "loki_storage" {
-  name                = "pep-${var.loki_storage_account_name}-blob"
-  location            = data.azurerm_resource_group.main.location
-  resource_group_name = data.azurerm_resource_group.main.name
-  subnet_id           = azurerm_subnet.automation.id
-
-  private_service_connection {
-    name                           = "psc-${var.loki_storage_account_name}-blob"
-    private_connection_resource_id = azurerm_storage_account.loki.id
-    subresource_names              = ["blob"]
-    is_manual_connection           = false
-  }
-
-  private_dns_zone_group {
-    name                 = "blob-zone"
-    private_dns_zone_ids = [azurerm_private_dns_zone.storage_blob.id]
-  }
 }
 
 resource "azurerm_private_endpoint" "key_vault" {
@@ -151,20 +123,6 @@ resource "azurerm_network_security_rule" "cm_tailscale_udp" {
   source_port_range           = "*"
   destination_port_range      = "41641"
   source_address_prefix       = "VirtualNetwork"
-  destination_address_prefix  = "*"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  network_security_group_name = azurerm_network_security_group.cm.name
-}
-
-resource "azurerm_network_security_rule" "cm_storage_https_from_control" {
-  name                        = "allow-private-storage-https-from-control"
-  priority                    = 125
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "443"
-  source_address_prefix       = var.control_plane_subnet_cidr
   destination_address_prefix  = "*"
   resource_group_name         = data.azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.cm.name
@@ -251,7 +209,7 @@ resource "azurerm_network_security_rule" "workload_keyvault_https" {
   source_port_range           = "*"
   destination_port_range      = "443"
   source_address_prefix       = var.workload_plane_subnet_cidr
-  destination_address_prefix  = "*"
+  destination_address_prefix  = var.workload_plane_subnet_cidr
   resource_group_name         = data.azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.workload.name
 }
@@ -265,7 +223,7 @@ resource "azurerm_network_security_rule" "workload_keyvault_https_from_control" 
   source_port_range           = "*"
   destination_port_range      = "443"
   source_address_prefix       = var.control_plane_subnet_cidr
-  destination_address_prefix  = "*"
+  destination_address_prefix  = var.workload_plane_subnet_cidr
   resource_group_name         = data.azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.workload.name
 }

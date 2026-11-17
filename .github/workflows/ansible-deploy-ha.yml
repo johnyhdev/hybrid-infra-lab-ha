@@ -126,9 +126,18 @@ jobs:
       - name: Resolve CM Node Hostname
         id: resolve_node
         run: |
-          mapfile -t CM_IPS < <(tailscale status --json | jq -r '.Peer[]? | select((.Tags[]? == "tag:cm") and .Online == true) | .TailscaleIPs[0]')
+          CM_IPS=()
+          for attempt in $(seq 1 30); do
+            if status=$(timeout 15s tailscale status --json) &&
+              peers=$(jq -er '[.Peer[]? | select((.Tags[]? == "tag:cm") and .Online == true) | .TailscaleIPs[0] | select(. != null)] | .[]' <<< "$status"); then
+              mapfile -t CM_IPS <<< "$peers"
+              break
+            fi
+            echo "No online CM is discoverable yet (attempt $attempt/30)."
+            if [ "$attempt" -lt 30 ]; then sleep 10; fi
+          done
           if [ "${#CM_IPS[@]}" -eq 0 ]; then
-            echo "No online CM nodes with tag:cm are currently available."
+            echo "ERROR: No online CM nodes with tag:cm became available; deployment stopped."
             exit 1
           fi
           # JSON string hóa mảng IP an toàn tuyệt đối qua jq

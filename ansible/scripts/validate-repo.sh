@@ -67,6 +67,7 @@ validate_shell() {
   while IFS= read -r -d '' shell_file; do
     bash -n "$shell_file"
   done < <(find "$ANSIBLE_DIR" "$ROOT/bootstrap" -type f -name '*.sh' -print0)
+  bash "$ANSIBLE_DIR/tests/test_inventory_retry.sh"
 }
 
 case "$PROFILE" in
