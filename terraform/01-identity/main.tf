@@ -100,3 +100,4 @@ resource "azurerm_key_vault_key" "loki_encryption_key" {
     "wrapKey",
   ]
 }
+

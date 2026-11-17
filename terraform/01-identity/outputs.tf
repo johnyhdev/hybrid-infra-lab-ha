@@ -48,6 +48,11 @@ output "key_vault_id" {
   value       = azurerm_key_vault.workload_secrets.id
 }
 
+output "key_vault_uri" {
+  description = "Key Vault resource URI"
+  value       = azurerm_key_vault.workload_secrets.vault_uri
+}
+
 output "loki_encryption_key_id" {
   description = "Resource ID of the optional customer-managed Blob encryption key; null when enable_storage_cmk is false"
   value       = try(azurerm_key_vault_key.loki_encryption_key[0].id, null)

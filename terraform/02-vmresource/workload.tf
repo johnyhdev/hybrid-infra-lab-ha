@@ -6,6 +6,7 @@ locals {
         tailscale_workload_client_id = var.tailscale_workload_client_id
         tailscale_workload_audience  = var.tailscale_workload_audience
         tailscale_package_version    = var.tailscale_package_version
+        workload_identity_client_id  = data.azurerm_user_assigned_identity.workload.client_id
       })
     )
   }
