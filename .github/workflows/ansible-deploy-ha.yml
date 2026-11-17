@@ -183,7 +183,7 @@ jobs:
             echo "Waiting for all online CM nodes to become ready... Retry $RETRY_COUNT/$MAX_RETRIES"
             sleep 5
           done
-          READY_IPS_JSON=$(printf '%s\n' "${READY_IPS[@]}" | jq -R . | jq -s .)
+          READY_IPS_JSON=$(printf '%s\n' "${READY_IPS[@]}" | jq -R . | jq -sc .)
           echo "cm_ips=$READY_IPS_JSON" >> "$GITHUB_OUTPUT"
           echo "cm_ip=${READY_IPS[0]}" >> "$GITHUB_OUTPUT"
           echo "All online CM nodes are ready to stage the approved release."
