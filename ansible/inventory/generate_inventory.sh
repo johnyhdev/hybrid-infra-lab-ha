@@ -4,26 +4,25 @@ set -euo pipefail
 OUTPUT="${1:-inventory/generated/tailscale.yml}"
 mkdir -p "$(dirname "$OUTPUT")"
 
+AZURE_CONFIG_DIR="$(mktemp -d /run/phase8-azure-XXXXXXXX)"
+export AZURE_CONFIG_DIR
+trap 'rm -rf -- "$AZURE_CONFIG_DIR"' EXIT
+trap 'exit 143' TERM
+
 python3 - "$OUTPUT" <<'PY'
 import json
 import atexit
 import os
 import pathlib
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 
 output = pathlib.Path(sys.argv[1])
-azure_config_dir = pathlib.Path(tempfile.mkdtemp(prefix="phase8-azure-", dir="/run"))
-os.chmod(azure_config_dir, 0o700)
-os.environ["AZURE_CONFIG_DIR"] = str(azure_config_dir)
 
 
 def cleanup_azure_cli() -> None:
     subprocess.run(["az", "logout"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    shutil.rmtree(azure_config_dir, ignore_errors=True)
 
 
 atexit.register(cleanup_azure_cli)

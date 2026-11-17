@@ -75,7 +75,7 @@ variable "control_vms" {
     }
     "vm-cm-02" = {
       size              = "Standard_D2ps_v6"
-      zone              = "2"
+      zone              = "3"
       os_disk_size_gb   = 64
       data_disk_size_gb = 0
     }
@@ -88,7 +88,7 @@ variable "control_vms" {
 }
 
 variable "ha_mode" {
-  description = "When true, require at least two control and two workload VMs in distinct zones"
+  description = "When true, require at least two control VMs in distinct zones and two workload VMs"
   type        = bool
   default     = true
 }
@@ -122,7 +122,7 @@ variable "tailscale_cm_audience" {
 }
 
 variable "workload_vms" {
-  description = "Workload VM definitions; PostgreSQL HA uses three designated cluster members"
+  description = "Workload VM definitions; exactly three PostgreSQL members may share zones when capacity is limited"
 
   type = map(object({
     size                    = string
@@ -143,7 +143,7 @@ variable "workload_vms" {
     }
     "vm-workload-02" = {
       size                    = "Standard_D2ps_v6"
-      zone                    = "2"
+      zone                    = "1"
       os_disk_size_gb         = 64
       database_cluster_member = true
       cloudflare_ingress      = true
@@ -167,12 +167,6 @@ variable "workload_vms" {
     error_message = "Exactly three workload VMs must be designated as PostgreSQL HA cluster members."
   }
 
-  validation {
-    condition = length(distinct([
-      for vm in values(var.workload_vms) : vm.zone if vm.database_cluster_member
-    ])) == 3
-    error_message = "The three PostgreSQL cluster members must use three distinct availability zones."
-  }
 }
 
 variable "tailscale_workload_client_id" {

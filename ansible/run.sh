@@ -7,7 +7,8 @@ echo "========================================"
 echo "Generating Tailscale inventory"
 echo "========================================"
 
-./inventory/generate_inventory.sh inventory/generated/tailscale.yml
+source ./inventory/retry_inventory.sh
+generate_inventory_with_retry ./inventory/generate_inventory.sh inventory/generated/tailscale.yml
 
 echo
 echo "========================================"

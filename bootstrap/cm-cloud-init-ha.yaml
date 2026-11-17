@@ -112,7 +112,6 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  runcmd:
   # Create 2 GB swap
   - [ sh, -c, "if [ ! -f /swapfile ]; then fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048; fi" ]
   - [ sh, -c, "chmod 600 /swapfile" ]
