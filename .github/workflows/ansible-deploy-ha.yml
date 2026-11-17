@@ -125,48 +125,32 @@ jobs:
 
       - name: Resolve CM Node Hostname
         id: resolve_node
-        env:
-          AZURE_RESOURCE_GROUP: "rg-hybrid-infra-lab-ha" # Thay bằng tên Resource Group của bạn nếu khác
         run: |
-          # 1. Đăng nhập Azure CLI (nếu cần để lấy danh sách VM chuẩn xác từ Azure)
-          az login --identity --output none || true
-
-          echo "Fetching active VM names from Azure..."
-          AZURE_VM_NAMES=$(az vm list --resource-group "$AZURE_RESOURCE_GROUP" --query "[?tags.database=='cluster-member' || contains(name, 'cm')].name" --output tsv | tr '[:upper:]' '[:lower:]' | sort -u)
-          
-          if [ -z "$AZURE_VM_NAMES" ]; then
-            # Fallback nếu không gọi được az cli, dùng quy luật tên thông thường (ví dụ vm-cm-01, vm-cm-02)
-            AZURE_VM_NAMES="vm-cm-01\nvm-cm-02"
-          fi
-
           CM_IPS=()
           for attempt in $(seq 1 30); do
-            status=$(timeout 15s tailscale status --json) || true
-            if [ -n "$status" ]; then
-              # Lọc các peer online có tag:cm, sau đó CHỈ lấy những node có hostname khớp với danh sách Azure VMs hiện tại 
-              # (bằng cách cắt bỏ các hậu tố -1, -2 nếu có do Tailscale sinh ra khi trùng tên)
-              matched_peers=$(jq -r --argjson az_vms "$(echo "$AZURE_VM_NAMES" | jq -R . | jq -s .)" '
-                [.Peer[]? | select((.Tags[]? == "tag:cm") and .Online == true) | 
-                {
-                  host: ((.HostName // .DNSName // "") | split(".")[0] | ascii_downcase),
-                  ip: .TailscaleIPs[0]
-                } | 
-                select(.ip != null and (.host as $h | $az_vms | map(. == $h or ($h | startswith(. + "-"))) | any))] 
-                | unique_by(.host) | .[].ip
-              ' <<< "$status")
-
-              if [ -n "$matched_peers" ]; then
-                mapfile -t CM_IPS <<< "$matched_peers"
-                break
-              fi
+            if status=$(timeout 15s tailscale status --json) &&
+              peers=$(jq -er '[
+                .Peer[]? 
+                | select((.Tags[]? == "tag:cm") and .Online == true) 
+                | {
+                    host: (.HostName // .DNSName // "" | split(".")[0]),
+                    ip: .TailscaleIPs[0]
+                  }
+                | select(.ip != null)
+              ] 
+              | map(. + {base: (if .host | test("-[0-9]+-[0-9]+$") then .host | sub("-[0-9]+$"; "") else .host end)})
+              | group_by(.base)
+              | map(max_by(.host))
+              | .[].ip' <<< "$status"); then
+              mapfile -t CM_IPS <<< "$peers"
+              break
             fi
-            
-            echo "No valid online CM nodes matching active Azure VMs discoverable yet (attempt $attempt/30)."
+            echo "No online CM is discoverable yet (attempt $attempt/30)."
             if [ "$attempt" -lt 30 ]; then sleep 10; fi
           done
 
           if [ "${#CM_IPS[@]}" -eq 0 ]; then
-            echo "ERROR: No valid online CM nodes became available; deployment stopped."
+            echo "ERROR: No online CM nodes with tag:cm became available; deployment stopped."
             exit 1
           fi
 
