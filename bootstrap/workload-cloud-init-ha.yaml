@@ -11,61 +11,102 @@ packages:
   - gnupg
 
 write_files:
-  - path: /usr/local/sbin/join-tailscale-workload
+  # ------------------------------------------------------------
+  # Install Tailscale (Đồng bộ chuẩn từ CM)
+  # ------------------------------------------------------------
+  - path: /usr/local/bin/install-tailscale.sh
+    permissions: "0755"
     owner: root:root
-    permissions: "0750"
     content: |
       #!/usr/bin/env bash
       set -euo pipefail
 
-      status="$(tailscale status --json 2>/dev/null | jq -r '.BackendState // empty' || true)"
-      if [ "$${status}" = "Running" ]; then
+      if command -v tailscale >/dev/null 2>&1; then
+        echo "Tailscale already installed."
+        tailscale version
         exit 0
       fi
 
-      token=""
-      for attempt in $(seq 1 30); do
-        token="$(curl -fsS -H Metadata:true \
-          'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource=api://AzureADTokenExchange' \
-          | jq -r '.access_token // empty' || true)"
-        if [ -n "$${token}" ]; then break; fi
+      echo "Installing Tailscale..."
+      curl -fsSL "https://raw.githubusercontent.com/tailscale/tailscale/v${tailscale_package_version}/scripts/installer.sh" \
+        | TAILSCALE_VERSION="${tailscale_package_version}" sh
+      tailscale version
+
+  # ------------------------------------------------------------
+  # Join Tailscale using Azure Managed Identity + WIF (Dành riêng Workload)
+  # ------------------------------------------------------------
+  - path: /usr/local/bin/join-tailscale.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      TS_STATUS="$(tailscale status --json 2>/dev/null | jq -r '.BackendState // empty' || true)"
+
+      if [ "$${TS_STATUS}" = "Running" ]; then
+        echo "Tailscale is already Running."
+        exit 0
+      fi
+
+      echo "Waiting for Azure Managed Identity..."
+      AZURE_JWT_TOKEN=""
+
+      for i in {1..30}; do
+        AZURE_JWT_TOKEN="$(curl -fsS -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource=api://AzureADTokenExchange&client_id=${workload_identity_client_id}" | jq -r '.access_token // empty')" || true
+
+        if [ -n "$${AZURE_JWT_TOKEN}" ]; then
+          echo "Azure Managed Identity token acquired."
+          break
+        fi
+
+        echo "Managed Identity not ready. Retry $${i}/30..."
         sleep 3
       done
-      if [ -z "$${token}" ]; then
-        echo "Could not obtain workload managed-identity token" >&2
+
+      if [ -z "$${AZURE_JWT_TOKEN}" ]; then
+        echo "ERROR: Failed to obtain Azure Managed Identity token."
         exit 1
       fi
 
-      tailscale up --reset \
-        --id-token="$${token}" \
-        --client-id='${tailscale_workload_client_id}' \
-        --audience='${tailscale_workload_audience}' \
-        --advertise-tags=tag:workload \
-        --hostname='${hostname}' \
-        --ssh
-      unset token
+      echo "Joining Tailscale..."
+      echo "DEBUG Client ID: ${tailscale_workload_client_id}"
+      echo "DEBUG Audience: ${tailscale_workload_audience}"
+      tailscale up --reset --id-token="$${AZURE_JWT_TOKEN}" --client-id="${tailscale_workload_client_id}" --audience="${tailscale_workload_audience}" --advertise-tags=tag:workload --hostname="$(hostname)" --ssh
 
-  - path: /etc/systemd/system/tailscale-workload-join.service
-    owner: root:root
+      unset AZURE_JWT_TOKEN
+      echo "Tailscale join completed."
+      tailscale status
+
+  # ------------------------------------------------------------
+  # Automatically join Tailscale after tailscaled is ready
+  # ------------------------------------------------------------
+  - path: /etc/systemd/system/tailscale-auto-join.service
     permissions: "0644"
+    owner: root:root
     content: |
       [Unit]
-      Description=Join workload VM to Tailscale using Azure Managed Identity WIF
-      Wants=network-online.target tailscaled.service
+      Description=Tailscale Auto-Join with Azure OIDC (Workload)
       After=network-online.target tailscaled.service
+      Wants=network-online.target tailscaled.service
 
       [Service]
       Type=oneshot
-      ExecStart=/usr/local/sbin/join-tailscale-workload
+      ExecStart=/usr/local/bin/join-tailscale.sh
       RemainAfterExit=yes
 
       [Install]
       WantedBy=multi-user.target
 
 runcmd:
-  - [ bash, -lc, "curl -fsSL 'https://raw.githubusercontent.com/tailscale/tailscale/v${tailscale_package_version}/scripts/installer.sh' | TAILSCALE_VERSION='${tailscale_package_version}' sh" ]
-  - [ systemctl, enable, --now, tailscaled ]
-  - [ systemctl, daemon-reload ]
-  - [ systemctl, enable, --now, tailscale-workload-join.service ]
-  - [ ufw, allow, in, on, tailscale0, to, any, port, "22", proto, tcp ]
+  # Keep host management on Tailscale; Azure NSG denies direct VM SSH.
   - [ ufw, --force, enable ]
+
+  # Install and enable Tailscale using the robust script
+  - [ /usr/local/bin/install-tailscale.sh ]
+  - [ systemctl, enable, --now, tailscaled ]
+
+  # Join Tailscale using the attached Workload Managed Identity.
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, tailscale-auto-join.service ]
+  - [ ufw, allow, in, on, tailscale0, to, any, port, "22", proto, tcp ]
