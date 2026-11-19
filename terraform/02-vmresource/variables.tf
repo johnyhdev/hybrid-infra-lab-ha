@@ -78,7 +78,7 @@ variable "control_vms" {
       size              = "Standard_D2ps_v6"
       zone              = "3"
       os_disk_size_gb   = 30
-      data_disk_size_gb = 0 
+      data_disk_size_gb = 0
     }
   }
 
