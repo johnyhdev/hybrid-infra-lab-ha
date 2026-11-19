@@ -71,13 +71,13 @@ variable "control_vms" {
     "vm-cm-01" = {
       size              = "Standard_D2ps_v6"
       zone              = "1"
-      os_disk_size_gb   = 64
+      os_disk_size_gb   = 30
       data_disk_size_gb = 0
     }
     "vm-cm-02" = {
       size              = "Standard_D2ps_v6"
       zone              = "3"
-      os_disk_size_gb   = 64
+      os_disk_size_gb   = 30
       data_disk_size_gb = 0
     }
   }
@@ -138,21 +138,21 @@ variable "workload_vms" {
     "vm-workload-01" = {
       size                    = "Standard_D2ps_v6"
       zone                    = "1"
-      os_disk_size_gb         = 64
+      os_disk_size_gb         = 30
       database_cluster_member = true
       cloudflare_ingress      = true
     }
     "vm-workload-02" = {
       size                    = "Standard_D2ps_v6"
       zone                    = "1"
-      os_disk_size_gb         = 64
+      os_disk_size_gb         = 30
       database_cluster_member = true
       cloudflare_ingress      = true
     }
     "vm-workload-03" = {
       size                    = "Standard_D2ps_v6"
       zone                    = "3"
-      os_disk_size_gb         = 64
+      os_disk_size_gb         = 30
       database_cluster_member = true
       cloudflare_ingress      = true
     }
